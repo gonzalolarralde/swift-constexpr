@@ -1,75 +1,60 @@
-import SwiftSyntax
 import Testing
 @testable import ConstExpr
 
-enum ParseError: Error {
-    case cantFindExpectedParameter
+private let incrementRegistration = ConstExprRegistration(
+    name: "increment",
+    kind: .function,
+    parameterLabels: [nil],
+    parameterTypes: [Int.self],
+    resultType: Int.self
+) { _, arguments in
+    guard let argument = arguments[0] else {
+        throw ConstExprValueError.typeMismatch(expected: "Int", actual: "missing")
+    }
+    return ConstExprValue(try argument.require(Int.self) + 1)
 }
 
-func foo(_ value: Int) -> Int {
-    value + 1
+private let registry = ConstExprRegistry(registrations: [incrementRegistration])
+
+@Test func nestedRegisteredCallsUseRewrittenArguments() {
+    let source = "let result = increment(increment(5))"
+    let result = ConstExprRunner(registry: registry).rewrite(source: source)
+
+    #expect(result.source == "let result = 7")
+    #expect(result.diagnostics.isEmpty)
 }
 
-struct Bar {
-    private let value: Int
-    
-    init(_ value: Int) {
-        self.value = value
-    }
-    
-    func build() -> String {
-        "Bar \(value)"
-    }
+@Test func unknownParentsKeepFoldedChildren() {
+    let source = "let result = unknown(increment(5))"
+    let result = ConstExprRunner(registry: registry).rewrite(source: source)
+
+    #expect(result.source == "let result = unknown(6)")
 }
 
-extension Bar: ConstExprType {
-    static let canonicalName = "Bar"
-    static func findBuilder(for function: FunctionCallExprSyntax) -> ConstExprBuilder? {
-        .init { _ in
-            function
-//            StringLiteralExprSyntax(
-//                openingQuote: .stringQuoteToken(),
-//                segments: [],
-//                closingQuote: .stringQuoteToken()
-//            )
-        }
-    }
-    static func chainBuilder(instance: Bar, for function: FunctionCallExprSyntax) -> (ConstExprBuilder, String)? {
-        (.init { _ in function }, "Bar")
-    }
-}
-
-struct fooRepr: ConstExprType {
-    static let canonicalName = "foo"
-    static func findBuilder(for function: FunctionCallExprSyntax) -> ConstExprBuilder? {
-        .init { arguments in
-            guard
-                let first = arguments.first,
-                let integerLiteral = first.expression.as(IntegerLiteralExprSyntax.self),
-                let integer = Int(integerLiteral.literal.text)
-            else { throw ParseError.cantFindExpectedParameter }
-
-            return IntegerLiteralExprSyntax(
-                leadingTrivia: function.leadingTrivia,
-                literal: .integerLiteral("\(foo(integer))"),
-                trailingTrivia: function.trailingTrivia
-            )
-        }
-    }
-    static func chainBuilder(instance: Self, for function: FunctionCallExprSyntax) -> (ConstExprBuilder, String)? {
-        nil
-    }
-}
-
-@Test func basicExpectations() async throws {
-    let source = """
-        let result = Bar(foo(foo(5))).build()
-        """
-    let output = """
-        let result = "Bar 7"
-        """
-    
-    #expect(
-        ConstExprRunner(registry: [Bar.self, fooRepr.self]).run(input: source) == output
+@Test func operatorsRespectSwiftPrecedence() {
+    let result = ConstExprRunner(registry: .empty).rewrite(
+        source: "let result = 1 + 2 * 3"
     )
+
+    #expect(result.source == "let result = 7")
+}
+
+@Test func sourceOnlyCompatibilityEntryPointDelegatesToRewrite() {
+    let runner = ConstExprRunner(registry: registry)
+
+    #expect(runner.run(input: "let result = increment(4)") == "let result = 5")
+}
+
+@Test func immutableBindingsPropagate() {
+    let result = ConstExprRunner(registry: registry).rewrite(
+        source: """
+            let base = increment(1)
+            let result = base * 3
+            """
+    )
+
+    #expect(result.source == """
+        let base = 2
+        let result = 6
+        """)
 }
