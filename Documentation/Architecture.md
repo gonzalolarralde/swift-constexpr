@@ -51,6 +51,119 @@ algorithm during macro expansion. Expression macros cannot discover arbitrary
 consumer-module declarations, so that explicit companion target is the semantic
 lookup boundary.
 
+## Declaration collection
+
+Nominal annotations are catch-all by default. There is no include list to keep in
+sync with an evolving API:
+
+```swift
+import Foundation
+
+@ConstExpr
+struct Parser {
+    private let text: String
+
+    init(text: String) {
+        self.text = text
+    }
+
+    static func parse(_ text: String) -> Parser {
+        Parser(text: text)
+    }
+
+    var count: Int { text.count }
+
+    @ConstExprIgnored
+    static var processLocale: String { Locale.current.identifier }
+}
+```
+
+This declaration produces registrations for `init(text:)`, `parse(_:)`, and
+`count`. `processLocale` is excluded explicitly. An unsupported member is omitted
+from a bulk provider automatically; attaching `@ConstExpr` directly to that same
+member instead requests a diagnostic explaining why no adapter can be emitted.
+
+The collection boundary is syntactic. A macro attached to `Parser` can inspect
+its primary body but cannot discover members in an unrelated extension. The
+extension uses the corresponding bulk annotation:
+
+```swift
+@ConstExprMembers
+extension Parser {
+    func summary() -> String { "characters: \(count)" }
+}
+```
+
+The generated providers still do nothing until a host selects them:
+
+```swift
+let registry = #constExprRegistry(Parser.self, Parser.summary)
+```
+
+This separation is intentional. Declaration annotations describe what may be
+adapted; registry aggregation describes what one evaluator is trusted to execute.
+
+## Execution modes
+
+All three public execution modes share the same registry, source preparation,
+type resolution, overload ranking, and evaluator:
+
+1. **Source rewriting** calls `rewrite(source:fileName:)`. Known expressions are
+   materialized as Swift syntax, while unknown parents can retain independently
+   rewritten children.
+2. **Inline evaluation** uses a library-owned companion `#evaluate` macro. It
+   evaluates immutable local bindings and a final expression during macro
+   expansion, then emits the constant or the original expression.
+3. **Terminal evaluation** calls `evaluate(source:binding:as:policy:fileName:)`
+   or its `SourceFileSyntax` overload. It returns the exact linked value of a
+   named global without rendering that value as source.
+
+The common pipeline is:
+
+```text
+source + registry + availability context
+    -> parse and diagnose
+    -> fold operator sequences
+    -> evaluate with lexical scopes and expected types
+    -> materialize rewritten syntax | extract terminal value | fallback
+```
+
+Source materialization is disabled in terminal mode. Opaque values can therefore
+cross a complete registered construction chain and reach the host even when no
+Swift literal could represent them.
+
+### Certifying host integration
+
+A host that would otherwise compile and execute a declarative Swift file uses
+terminal evaluation as an all-or-nothing optimization:
+
+```swift
+switch runner.evaluate(
+    source: originalSource,
+    binding: "configuration",
+    as: Configuration.self,
+    policy: .certifying
+) {
+case .success(let configuration):
+    consume(configuration)
+case .fallback:
+    compileAndRun(originalSource)
+}
+```
+
+Certifying mode accepts a terminal value only after every active top-level item
+is an understood import or fully evaluated immutable binding. A host with its own
+conditional-compilation model can remove inactive regions and pass the configured
+`SourceFileSyntax`, avoiding a second parse. Hosts may also impose a stricter
+source envelope, import policy, or module-fingerprint check before evaluation.
+
+A fallback never means “compile the partially rewritten source.” The host
+discards every speculative value and passes the untouched original source to its
+normal compiler path. This preserves compiler diagnostics and makes unsupported
+syntax a coverage concern rather than a correctness shortcut. Because registered
+callbacks may run before a later item forces fallback, the purity and isolation
+requirements apply even to ultimately discarded evaluations.
+
 ## Evaluation algorithm
 
 Expressions are evaluated bottom-up within declaration-aware syntax traversal.

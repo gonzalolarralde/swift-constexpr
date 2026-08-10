@@ -1,30 +1,44 @@
 # ConstExpr
 
-ConstExpr is an experimental SwiftSyntax source rewriter that evaluates trusted,
-registered Swift declarations when every input to an expression is known. It is
-not a Swift compiler feature and it does not interpret function bodies. A runner
-links the real compiled implementations, invokes them during rewriting, and emits
-Swift constants while preserving static types in the contexts it understands.
-
-This is deliberately a best-effort tool, not a substitute for Swift's type
-checker or optimizer. Always compile and test rewritten output. Source that needs
-constraint-solver context the rewriter does not have is left alone where possible.
-
-The implementation requires Swift 6.3 or newer (`swift-tools-version: 6.3`),
-depends on swift-syntax from 603.0.2, and currently targets macOS 11 or newer. See
-[the architecture notes](Documentation/Architecture.md) for the value, resolution,
-scoping, and trust models.
-
-For local SwiftPM development, add this checkout as a package dependency and the
-`ConstExpr` product to the target that defines or runs constant expressions:
+ConstExpr evaluates explicitly trusted Swift declarations when every input is
+known. It can replace a call with a Swift constant, power an inline `#evaluate`
+macro, or return a typed global value to a host application without compiling
+and running the input file.
 
 ```swift
+@ConstExpr
+func increment(_ value: Int) -> Int {
+    value + 1
+}
+```
+
+That declaration enables this rewrite:
+
+```swift
+let answer = increment(41)
+// becomes: let answer = 42
+```
+
+ConstExpr is an experimental linked source evaluator, not a Swift interpreter.
+It invokes the real compiled implementation of a registered declaration. If it
+cannot prove an expression safely, it leaves the source alone or reports a
+structured fast-path miss. Swift's compiler remains the authority on the
+original or rewritten program.
+
+The package requires Swift 6.3, swift-syntax 603.0.2, and macOS 11 or newer.
+
+## Add ConstExpr to a package
+
+For local development, add the checkout and the `ConstExpr` product:
+
+```swift
+// Package.swift
 dependencies: [
     .package(path: "../swift-constexpr"),
 ],
 targets: [
     .target(
-        name: "MyConstExprDefinitions",
+        name: "MyLibrary",
         dependencies: [
             .product(name: "ConstExpr", package: "swift-constexpr"),
         ]
@@ -32,24 +46,35 @@ targets: [
 ]
 ```
 
-Most clients only import `ConstExpr`. A custom `ConstExprRepresentable`
-implementation returns `SwiftSyntax.ExprSyntax`, so that target must also declare
-swift-syntax 603 as a direct package dependency, add its `SwiftSyntax` product,
-and `import SwiftSyntax`. SwiftPM does not make a library's transitive products
-directly importable by its clients.
+Most clients only need `import ConstExpr`. A custom
+`ConstExprRepresentable` renderer also returns `SwiftSyntax.ExprSyntax`, so its
+target must directly depend on and import `SwiftSyntax`.
 
-## Defining constant expressions
+## Declare what can be evaluated
 
-Annotate synchronous, deterministic declarations in a library:
+Use `@ConstExpr` on a function:
 
 ```swift
 import ConstExpr
 
 @ConstExpr
-public func increment(_ value: Int) -> Int {
-    value + 1
+public func makeGreeting(name: String) -> String {
+    "Hello, \(name)!"
 }
+```
 
+That declaration enables:
+
+```swift
+let greeting = makeGreeting(name: "Ari")
+// becomes: let greeting = "Hello, Ari!"
+```
+
+Use `@ConstExpr` once on a type to collect every eligible declaration in its
+primary body. Initializers, methods, static methods, properties, enum cases,
+and read-only subscripts are included when their signatures are supported:
+
+```swift
 @ConstExpr
 public struct Label {
     private let value: Int
@@ -58,542 +83,397 @@ public struct Label {
         self.value = value
     }
 
-    public func render() -> String {
-        "Label \(value)"
+    public static func doubled(_ value: Int) -> Label {
+        Label(value * 2)
+    }
+
+    public var text: String {
+        "item-\(value)"
     }
 }
 ```
 
-Build a registry explicitly in the module that will drive rewriting:
+That one annotation enables the whole chain:
+
+```swift
+let text = Label.doubled(4).text
+// becomes: let text = "item-8"
+```
+
+Bulk collection silently skips declarations that cannot be adapted, such as
+generic, asynchronous, mutating, variadic, or dynamically dispatched members.
+Use `@ConstExprIgnored` when a declaration is syntactically eligible but unsafe
+to execute during a build:
+
+```swift
+import Foundation
+
+@ConstExpr
+public struct BuildValues {
+    public static var formatVersion: Int { 3 }
+
+    @ConstExprIgnored
+    public static var currentDirectory: String {
+        FileManager.default.currentDirectoryPath
+    }
+}
+```
+
+This enables `BuildValues.formatVersion`, but intentionally leaves
+`BuildValues.currentDirectory` to normal Swift execution.
+
+An unrelated extension is not visible to the type's attached macro. Annotate
+the extension once to collect its eligible immediate members:
+
+```swift
+@ConstExprMembers
+extension Label {
+    public func repeated(_ count: Int) -> String {
+        String(repeating: text, count: count)
+    }
+}
+```
+
+Direct member annotations remain useful when you want an unsupported
+declaration to produce a macro diagnostic instead of being silently omitted.
+
+## Build a registry
+
+Attached macros generate registration peers beside declarations, but a Swift
+macro cannot enumerate every annotation in a module. A host therefore declares
+the exact API surface it trusts:
 
 ```swift
 import ConstExpr
-import MyConstExprDefinitions
+import MyLibrary
 
-public let registry = #constExprRegistry(increment(_:), Label.self)
+public let registry = #constExprRegistry(
+    makeGreeting(name:),
+    Label.self,
+    Label.repeated(_:)
+)
 ```
 
-Then rewrite complete source text:
+`Label.self` collects the registrations produced by its nominal annotation.
+Extension declarations are selected explicitly. Cast an overloaded function to
+select its declaration:
 
 ```swift
+let registry = #constExprRegistry(
+    transform(_:) as (Int) -> String,
+    transform(_:) as (String) -> String
+)
+```
+
+The registry is both a lookup table and a trust boundary. Only linked,
+registered declarations can execute.
+
+## Rewrite Swift source
+
+Create a runner with the registry and give it complete Swift source:
+
+```swift
+let source = #"""
+let greeting = makeGreeting(name: "Ari")
+let label = Label.doubled(4).text
+unknown(makeGreeting(name: "Bo"))
+"""#
+
 let result = ConstExprRunner(registry: registry).rewrite(
     source: source,
     fileName: "Input.swift"
 )
 
 print(result.source)
-for diagnostic in result.diagnostics {
-    print(diagnostic)
+```
+
+The result is:
+
+```swift
+let greeting = "Hello, Ari!"
+let label = "item-8"
+unknown("Hello, Bo!")
+```
+
+An unknown parent does not prevent an independently known child from folding.
+Ambiguous overloads, invalid constant arithmetic, thrown evaluations, registry
+collisions, and parser recovery remain source and produce structured
+diagnostics.
+
+ConstExpr also propagates immutable bindings:
+
+```swift
+let base = increment(20) // let base = 21
+let answer = base * 2    // let answer = 42
+```
+
+Mutable bindings do not propagate, and ConstExpr does not perform assignment or
+control-flow analysis.
+
+## Evaluate inline with `#evaluate`
+
+An application or library can expose a companion expression macro backed by
+its concrete registry:
+
+```swift
+let answer: Int = #evaluate {
+    let base = increment(20)
+    base * 2
 }
 ```
 
-For an all-or-nothing fast path, evaluate a global binding without rendering
-rewritten source:
+When evaluation succeeds, the macro expands to:
 
 ```swift
-switch ConstExprRunner(registry: registry).evaluate(
-    source: source,
-    binding: "package",
-    as: Package.self,
-    policy: .certifying
-) {
-case .success(let package): use(package)
-case .fallback(let reason): compileTheOriginalSource(reason)
+let answer: Int = 42
+```
+
+If the closure captures an unknown value, uses unsupported syntax, selects an
+ambiguous overload, or produces a value that cannot be rendered, it expands
+silently to the original expression or closure invocation. Swift still
+type-checks that fallback, so compiler diagnostics remain authoritative.
+
+Expression macros cannot discover arbitrary declarations in the consumer
+module. The library supplies a small companion macro target that links its
+registry:
+
+```swift
+public struct MyEvaluateMacro: ExpressionMacro {
+    public static func expansion(
+        of macro: some FreestandingMacroExpansionSyntax,
+        in context: some MacroExpansionContext
+    ) throws -> ExprSyntax {
+        ConstExprEvaluateMacroSupport.expansion(
+            of: macro,
+            in: context,
+            registry: registry
+        )
+    }
 }
 ```
 
-Certifying mode requires every active top-level item to be understood. It returns
-a structured fallback reason for unsupported syntax, ambiguity, availability,
-resource limits, or type mismatch. An overload taking `SourceFileSyntax` lets a
-host reuse an already parsed/configured tree. Terminal evaluation propagates
-linked values without rendering or reparsing replacements.
-
-For an overloaded free function, disambiguate the registry entry with a cast:
+The application-facing library declares the macro name:
 
 ```swift
-#constExprRegistry(
-    transform(_:) as (Int) -> String,
-    transform(_:) as (String) -> String
+@freestanding(expression)
+public macro evaluate<Result>(_ body: () -> Result) -> Result =
+    #externalMacro(module: "MyEvaluateMacros", type: "MyEvaluateMacro")
+```
+
+See
+[`ConstExprEvaluateExampleMacros`](Sources/ConstExprEvaluateExampleMacros/ConstExprEvaluateExampleMacro.swift)
+for a complete companion and
+[`ConstExprEvaluateExample`](Sources/ConstExprEvaluateExample/Evaluate.swift)
+for its public declaration.
+
+## Use a resolved global as a fast path
+
+Source rewriting is not the only useful output. A host can evaluate a named
+global binding and receive its linked Swift value directly.
+
+Suppose a configuration library declares:
+
+```swift
+@ConstExpr(registrationAccess: .package)
+public struct BuildDescription: Codable {
+    public let name: String
+    public let targets: [String]
+
+    public init(name: String, targets: [String] = []) {
+        self.name = name
+        self.targets = targets
+    }
+}
+```
+
+This declaration enables a separate source file to construct the real linked
+model:
+
+```swift
+import BuildModel
+
+let build = BuildDescription(
+    name: "Example",
+    targets: ["Core"]
 )
 ```
 
-An explicit registry is required because an attached Swift macro sees its own
-declaration, not an index of every annotation in a module.
-
-For declarations the macro deliberately does not support, an expert caller can
-build the same metadata manually. The callback receives an optional receiver and
-one optional value per declared parameter; omitted default arguments arrive as
-`nil`:
+The host can extract `build` without rendering it back into Swift:
 
 ```swift
-let incrementRegistration = ConstExprRegistration(
-    name: "increment",
-    kind: .function,
-    parameterLabels: [nil],
-    parameterTypes: [Int.self],
-    resultType: Int.self
-) { _, arguments in
-    guard arguments.count == 1, let argument = arguments[0] else {
-        throw ConstExprValueError.malformedCollection("missing increment argument")
-    }
-    return ConstExprValue(try argument.require(Int.self) + 1)
-}
+import Foundation
 
-let registry = ConstExprRegistry(incrementRegistration)
+let evaluation = ConstExprRunner(registry: registry).evaluate(
+    source: originalSource,
+    binding: "build",
+    as: BuildDescription.self,
+    policy: .certifying,
+    fileName: "Build.swift"
+)
+
+switch evaluation {
+case .success(let build):
+    let json = try JSONEncoder().encode(build)
+    consume(json)
+
+case .fallback(let reason):
+    compileAndRun(originalSource, reason: reason)
+}
 ```
 
-For a declaration with many repeated or defaulted parameter types, use the
-label-keyed factory instead of decoding numeric slots. Labels remain part of
-the declared overload identity, while the callback receives checked lookup by
-source label:
+This pattern is useful for declarative configuration files, code generators,
+schema definitions, build descriptions, and other systems that normally compile
+and execute a Swift file only to obtain one terminal model.
+
+Certifying evaluation is intentionally all-or-nothing. Every active top-level
+item must be an understood import or immutable binding, the requested binding
+must have the exact requested type, and overload resolution must be unique. A
+host that evaluates conditional compilation can pass its already configured
+`SourceFileSyntax` to avoid parsing the file again. On any miss, discard
+speculative values and compile the untouched original source.
+
+`registrationAccess: .package` is designed for this integration style. The
+original public API remains public, while generated providers are package-scoped
+and type-erased. A sibling host adapter can consume them without leaking
+ConstExpr imports or provider symbols into the library's public interface.
+
+## Specialize declarations the macro cannot adapt
+
+Macro-generated registrations are preferred because Swift checks their function
+references and types. A manual registration is useful for a historical API,
+host-only bridge, nontrivial default argument, or declaration that deliberately
+needs a different construction path.
+
+Use a label-keyed adapter when a declaration has many repeated or defaulted
+parameter types:
 
 ```swift
-let packageRegistration = ConstExprRegistration.labelKeyed(
-    name: "Package",
+let registration = ConstExprRegistration.labelKeyed(
+    name: "BuildDescription",
     kind: .initializer,
-    ownerType: Package.self,
-    parameterLabels: ["name", "products", "targets"],
-    parameterTypes: [String.self, [Product].self, [Target].self],
-    defaultedParameters: [1, 2],
-    resultType: Package.self
-) { _, arguments in
-    ConstExprValue(Package(
+    ownerType: BuildDescription.self,
+    parameterLabels: ["name", "targets"],
+    parameterTypes: [String.self, [String].self],
+    defaultedParameters: [1],
+    resultType: BuildDescription.self
+) { receiver, arguments in
+    guard receiver == nil else {
+        throw ConstExprValueError.malformedCollection("unexpected receiver")
+    }
+    return ConstExprValue(BuildDescription(
         name: try arguments.require("name", as: String.self),
-        products: try arguments.optional("products", as: [Product].self) ?? [],
-        targets: try arguments.optional("targets", as: [Target].self) ?? []
+        targets: try arguments.optional(
+            "targets",
+            as: [String].self
+        ) ?? []
     ))
 }
 ```
 
-Manual descriptors, throwing flags, source type spellings, and invocation code
-are trusted semantic claims; prefer macro-generated adapters when possible.
+Labels, types, defaults, availability, overload preference, and invocation code
+are trusted semantic claims. Prefer fallback over an adapter that merely guesses
+what Swift would select.
 
-The generated adapters currently cover:
+## Literals and structural values
 
-| Annotation target | Generated registrations |
-| --- | --- |
-| Free function | A synchronous, nongeneric function with supported value parameters and either no throwing effect or ordinary untyped `throws` |
-| Global `let` | One file-scope immutable identifier binding |
-| Direct initializer, method, property, or subscript | A peer beside an eligible declaration in a primary type or extension |
-| Extension with `@ConstExprMembers` | Peers for every eligible immediate member; unsupported members are omitted silently |
-| `struct`, `class` | Explicit accessible initializers, nonmutating/nonconsuming methods, static/instance nonlazy properties with explicit supported value types and ordinary getters, read-only instance subscripts, and a directly declared array-literal witness |
-| `enum` | The same members plus cases with or without associated values |
-
-Private stored state does not need to be registered. A public method can use it
-normally when the generated adapter invokes the compiled method. A member whose
-access is lower than the annotated nominal's generated provider is not exposed as
-a registration. An unrelated extension is not discovered automatically by a
-nominal annotation. Annotate that extension once with `@ConstExprMembers` to
-register all of its eligible immediate members, or annotate a declaration
-directly when strict diagnostics are useful. Bulk annotations intentionally
-omit unsupported members without warnings. `@ConstExprIgnored` excludes a
-syntactically eligible declaration whose implementation is not safe for
-constant evaluation.
-Compiler-synthesized initializers remain invisible. On a
-non-final class, instance methods, properties, and subscripts must themselves be
-`final`; `dynamic` members are always skipped because dispatch could select an
-unregistered implementation. Effectful, mutating, or consuming getters are also
-skipped.
-
-Availability metadata and `_disfavoredOverload` preference are copied into
-generated registrations, including eligible members of an annotated nominal. A
-runner filters introduced/deprecated/obsoleted domains through
-`ConstExprAvailabilityContext`; if it cannot prove the active overload set,
-certifying evaluation falls back. Deprecated registrations are not executed in
-their deprecated era. Whole-nominal generation omits unconditionally unavailable
-members and deprecated members that cannot be referenced warning-free. A static
-stored `let` on a value type may instead copy a recursively self-contained,
-contextually typed initializer into its adapter; its availability metadata still
-forces fallback at and after deprecation. SPI and global-actor constraints remain
-conservative where the generated peer cannot reproduce their access or isolation.
-
-`@ConstExpr(registrationAccess: .package)` leaves the original public declaration
-unchanged while emitting a package-scoped, type-erased provider peer. A sibling
-target in the same package can aggregate it, while neither the ConstExpr import nor
-the generated provider appears in the module's public interface.
-
-Because a syntax macro cannot resolve whether an arbitrary attribute is a custom
-global actor or a declaration-transforming macro, declaration attributes use a
-small allowlist. An unsupported semantic attribute rejects a directly annotated
-declaration; an affected bulk member is omitted silently. Use a manual
-registration when the attribute's behavior is known to be safe.
-
-Generated peers deliberately qualify support types through `_ConstExprRuntime` so
-ordinary names such as `ConstExprValue` can be shadowed safely. `_ConstExprRuntime`
-itself is reserved: do not declare a competing type or value with that name in a
-scope where either ConstExpr macro expands.
-
-## Evaluation model
-
-The evaluator can carry a registered struct, class, or enum as an opaque runtime
-value even when that intermediate value cannot be written as a Swift literal. For
-example, a fully registered chain can collapse to its final result:
+Expected type flows into registered initializers and static members, enabling
+Swift's leading-dot syntax:
 
 ```swift
-Foo().bar.blah() // becomes "5"
+let product: Product = .library(name: "Core", type: .dynamic)
 ```
 
-It also propagates simple immutable bindings and performs partial folding:
+Scalar literal conversion works for registered literal initializers whose linked
+type has the matching `ExpressibleBy…Literal` conformance. Arrays recursively
+provide element context, so a registered string-literal element type can enable:
 
 ```swift
-let value = increment(1)       // let value = 2
-let result = value * 3         // let result = 6
-unknown(increment(value))      // unknown(3)
+let dependencies: [Dependency] = ["Core", "Logging"]
 ```
 
-Unknown subexpressions are normal and remain in source, although independently
-known descendants may still fold. Ambiguous overloads, thrown evaluations, invalid
-constant arithmetic, registry collisions, and parser recovery are returned as
-structured diagnostics.
+Optional, Array, Dictionary, Set, range, and tuple shapes are structural. A host
+does not register a separate executable adapter for every `[Product]` or
+`Target?` specialization. Custom `ExpressibleByArrayLiteral` witnesses can also
+be registered; the automatic variadic trampoline supports up to 32 elements,
+while an explicit array-backed adapter may be unbounded.
 
-Expected-type context also drives Swift's leading-dot construction syntax. A
-registered initializer can resolve `.init(...)`, and registered static members can
-resolve contextual factories and values such as `.library(...)` or `.dynamic`.
-The contextual owner must match the registration's owner exactly; a factory on an
-unrelated type is never selected merely because it returns the desired result.
-Labels, defaults, literal conversions, and overload ranks are then checked in the
-usual way. If the context is absent or more than one best candidate remains, the
-source is retained for the Swift compiler.
+## Fallback is part of the design
 
-## Inline `#evaluate`
+ConstExpr does not contain Swift's constraint solver and does not interpret
+arbitrary function bodies. It declines evaluation when correctness depends on
+information it cannot prove, including:
 
-ConstExpr includes reusable macro-side support for library-owned companion
-expression macros:
+- an unknown or ambiguous overload;
+- an incomplete availability context;
+- unsupported mutation, control flow, effects, or captures;
+- a source declaration that shadows a registered declaration;
+- a deprecated declaration whose compiler diagnostic must be preserved;
+- a node, recursion, or automatic array-literal limit;
+- an unknown active top-level statement in certifying mode.
 
-```swift
-let value: Int = #evaluate {
-    let input = 41
-    increment(input)
-}
-```
+Best-effort rewriting retains such source. Inline `#evaluate` retains its
+original expression. A terminal host receives `ConstExprEvaluationFallback` and
+can use the normal compiler path.
 
-The companion macro target links the library's concrete registry and delegates to
-`ConstExprEvaluateMacroSupport`. V1 accepts a synchronous, nonthrowing closure
-containing immutable local `let` bindings and a final expression or `return`. A
-fully known, renderable result expands to its constant expression. Unknown
-captures, unsupported syntax, ambiguity, and unrenderable results expand silently
-to the original expression/closure invocation, leaving Swift's type checker and
-diagnostics authoritative. `ConstExprEvaluateExampleMacros` demonstrates the thin
-provider target; applications define the public macro name in their own library.
+## Safety
 
-A custom `ExpressibleByStringLiteral`, `ExpressibleByIntegerLiteral`,
-`ExpressibleByFloatLiteral`, or `ExpressibleByBooleanLiteral` type can receive a
-source literal when the linked type conforms and its corresponding literal
-initializer is registered. A whole-nominal annotation discovers a witness in the
-primary declaration; an extension witness can instead carry its own direct
-`@ConstExpr` annotation. ConstExpr verifies the linked conformance, its associated
-literal type, and the exact registered initializer shape before it executes
-anything. Built-in arrays recursively provide element context, so a
-`[Dependency]` can be written as `["Core", "Logging"]` when `Dependency` has a
-registered string-literal initializer. `Array` and `Set` have unlimited standard
-adapters through the same array-literal path, including PackageDescription-style
-trait sets.
+`@ConstExpr` is a trust declaration. Registered code executes in the host
+process and must be deterministic, terminating, nonmutating, and safe during a
+build. ConstExpr does not sandbox callbacks and cannot prevent an annotation from
+trapping, exiting, hanging, reading files, using the network, or mutating global
+state.
 
-User-owned array-literal types are supported too. When an annotated primary
-declaration directly names `ExpressibleByArrayLiteral` and contains exactly one
-eligible `init(arrayLiteral:)` witness, the macro generates an adapter for it:
+Input source can choose any declaration exposed by its registry. Treat the
+registry and input as trusted build inputs. See
+[Safety and limitations](Documentation/Safety.md) for the complete trust model.
 
-```swift
-@ConstExpr
-struct SegmentList: ExpressibleByArrayLiteral {
-    init(arrayLiteral elements: Segment...) { /* ... */ }
-    init(elements: [Segment]) { /* ... */ }
-}
-```
+## How it works
 
-Stable Swift cannot safely splat a runtime `[Segment]` into a variadic witness,
-so the generated witness trampoline supports zero through 32 elements. A larger
-literal is retained for the compiler with a diagnostic. A library author with an
-array-backed construction path can register an unbounded trusted adapter instead:
+At a high level:
 
-```swift
-ConstExprRegistration.arrayLiteral(
-    result: SegmentList.self,
-    element: Segment.self
-) { elements in
-    SegmentList(elements: elements)
-}
-```
+1. `@ConstExpr` and `@ConstExprMembers` emit type-safe registration peers.
+2. `#constExprRegistry` combines selected peers into an immutable registry.
+3. The registry lazily compiles indexes for declarations, owners, structural
+   types, literal adapters, and array-literal adapters.
+4. `ConstExprRunner` parses and folds Swift operator sequences, tracks immutable
+   lexical values, resolves registered calls using labels, types, defaults,
+   availability, and overload preference, then invokes the linked adapters.
+5. `ConstExprValue` carries renderable scalars and collections or opaque linked
+   values used by later registered operations.
+6. The runner either materializes rewritten Swift or extracts a named terminal
+   value. Unknown and ambiguous cases preserve source or produce fallback.
 
-A missing expected type, unknown element, or ambiguous custom adapter leaves the
-outer literal unresolved; independently safe child rewrites may still be
-retained. Unlike scalar literal initializers, an extension-only array-literal
-witness remains compiler work because the whole-nominal macro cannot discover it
-and the ordinary direct-member path does not support variadics.
+The full design—including structural type resolution, lexical scopes, overload
+ranking, availability, operator handling, instrumentation, and the trust
+boundary—is documented in [Architecture](Documentation/Architecture.md).
 
-An adapter for an ordinary `throws` declaration executes only when the source
-call is covered by `try`, `try?`, or `try!`. A call missing that required marker
-is retained instead of being turned into a constant that accidentally repairs
-invalid Swift. If the linked invocation actually throws, the call is retained and
-an `evaluation-threw` diagnostic is reported. A `try` outside a nested closure does
-not authorize an unmarked throwing call inside that closure. Throwing calls also
-remain in catch-bearing `do` bodies, inferred-throwing closures, and declarations
-without a compatible plain `throws` boundary (`rethrows` and typed throws remain
-conservative), so folding cannot erase a
-`catch`, an inferred function effect, or a required compiler diagnostic. Locally
-handled `try?` and `try!` expressions remain eligible.
-Likewise, a `try`, `try?`, or `try!` around an otherwise foldable nonthrowing
-registration is retained so Swift can still diagnose the redundant marker.
+## Examples and tools
 
-“Unknown” is a syntactic decision. ConstExpr does not load a Swift module index or
-run the constraint solver for the input file. In particular, it cannot infer the
-parameter context or overload rules of an arbitrary unregistered declaration.
-Source-visible declarations are treated as conservative shadows: an unqualified
-source function blocks a registration of that name, and an extension member in the
-input blocks registered members with the same matching owner spelling and name even
-when its written signature differs; an unqualified extension owner matches by
-basename. Imported overloads that are absent from the registry are not visible at
-all. For an imported overloaded API that will be folded, include every competing
-overload that could win at those call sites; the same completeness rule applies to
-imported operator overloads. Compile-time validation of rewritten output remains
-required.
+- [`Sources/ConstExprExampleDefinitions`](Sources/ConstExprExampleDefinitions/Definitions.swift)
+  shows functions, overloads, defaults, throwing calls, properties, enum cases,
+  classes, subscripts, and opaque chains.
+- [`Sources/ConstExprExampleRegistry`](Sources/ConstExprExampleRegistry/Registry.swift)
+  aggregates that API surface.
+- [`Examples`](Examples/README.md) demonstrates a separate-package author and
+  consumer workflow.
+- [`Documentation/PackageManifests.md`](Documentation/PackageManifests.md)
+  discusses declarative manifest evaluation and host integration.
+- [`Scripts/PackageIndex`](Scripts/PackageIndex/README.md) contains the resumable
+  corpus harness.
+- [`Scripts/Performance`](Scripts/Performance/README.md) contains the release
+  profiling workflow.
 
-Only simple immutable bindings propagate. Initializers inside `var` declarations
-can still be simplified, but later reads of the mutable variable are unknown.
-Parameters, captures, loop and catch patterns, local declarations, and nested
-bindings conservatively shadow outer constants.
-
-The runner does not execute registered calls while traversing `if`/`switch`
-bodies, loops, guard conditions, catch clauses, or conditional-compilation
-branches because it does not prove which path or iteration runs. Syntax-local
-children may still simplify. Macro and attribute arguments remain syntax. A
-declaration carrying attributes—including a function, initializer, subscript,
-nominal type, protocol, extension, deinitializer, or accessor—is left opaque; an
-attributed variable's initializer is also retained because an attached macro may
-inspect its original syntax. Unattributed accessors can use their declared result
-type as folding context. An outer call with a trailing closure is not matched as a
-registered call. Inside a closure with no explicit result type, only folds that do
-not depend on the unknown caller-provided result context are attempted;
-syntactically detected result-builder calls are retained as a whole.
-
-Static type is part of every known value. Results whose type is not Swift's
-default literal type use explicit context:
-
-```swift
-fiveAsInt64()       // (5) as Swift.Int64
-letter()            // ("x") as Swift.Character
-maybeValue(false)   // nil as Int?
-```
-
-This also makes overload resolution conservative. A source integer literal can
-be decoded for an `Int64` parameter, while a computed `Int` result is never
-silently widened. Explicit binding annotations provide useful context:
-
-```swift
-let value: Int64 = 1
-let rendered = acceptsInt64(value)
-```
-
-Arrays, sets, dictionaries, optionals, and tuples can be carried when their
-elements and concrete types are known. Heterogeneous literals whose common type
-would require Swift constraint solving are retained conservatively. An opaque
-annotated type can be stored in a `let` and used by a later registered property,
-method, or subscript. Direct structural tuple-literal arguments decode at arities
-two through four. Other tuple shapes can flow between registrations only when an
-exact boxed runtime tuple already exists, such as the result of a registered call.
-
-A custom terminal type may implement `ConstExprRepresentable`, but its returned
-syntax must be one complete expression. ConstExpr reparses it as the initializer of
-one synthetic binding and rejects parser recovery, extra bindings, or additional
-statements. The implementation is responsible for preserving the declared static
-type and value; invalid output causes the original call to remain.
-
-Known optional operations preserve laziness. A statically nil optional chain does
-not evaluate its member arguments, `??` does not evaluate its unselected side, and
-force-unwrapping a known value materializes the wrapped value. A known nil force
-unwrap remains in source and reports `forced-unwrap-of-nil`.
-
-## Operators
-
-Swift's standard operator table is folded before evaluation, so precedence and
-associativity match parsed Swift rather than a hand-written expression grammar.
-The runtime handles a focused set of checked and wrapping integer arithmetic,
-shifts and bitwise operations, floating-point arithmetic, Boolean logic,
-comparisons, and homogeneous string or array concatenation. Short-circuit and
-conditional operators do not execute an unselected registered call.
-Structural `==` and `!=` fold only when built-in `Equatable` support can be
-established recursively for every optional, array, dictionary, or tuple element;
-erased and non-Equatable structures remain unchanged.
-
-Custom operators can use the same registry without a macro adapter:
-
-```swift
-let comparison = ConstExprRegistration.infixOperator(
-    "<=>",
-    left: Int.self,
-    right: Int.self,
-    result: Int.self,
-    precedenceGroup: "ComparisonPrecedence",
-    associativity: .none
-) { left, right in
-    left < right ? -1 : (left == right ? 0 : 1)
-}
-
-let registry = ConstExprRegistry(comparison)
-```
-
-The real operator implementation must still be linked like any other registered
-API. If its declaration is imported rather than repeated in the input, the runner
-adds a temporary parser declaration from the registration metadata. Real source
-declarations and the standard operator table take priority. When synthesis is
-needed, the non-nil precedence and associativity claims across overloads for one
-fixity and symbol must not conflict; conflicts are diagnosed without executing the
-operator. A named infix precedence group must be standard or declared in the
-input because the registry cannot reconstruct an imported group's relative
-ordering rules. Associativity belongs to that group. A supplied registration
-associativity is checked against the group's authoritative value; it never changes
-how Swift groups the expression. A real declaration in the input or an entry
-already present in Swift's standard operator table is authoritative, and its
-registration metadata is ignored. Set `isThrowing: true` for a throwing operator.
-The runner then requires a source-level `try`, `try?`, or `try!`, just as it does
-for a throwing macro-generated declaration.
-
-## Diagnostics and limits
-
-`rewrite(source:fileName:)` is best-effort: ordinary unknown expressions are
-quiet, while detected unsafe or surprising failures are visible in the result.
-Diagnostics include a stable code, severity, message, file, line, and column.
-When syntax supplies an absolute position, they also include a zero-based UTF-8
-byte offset into the original source, including any leading UTF-8 byte-order mark.
-Examples include
-`ambiguous-overload`, `evaluation-threw`, `division-by-zero`,
-`integer-overflow`, `registry-collision`, and `parse-error`.
-
-The runner preserves a leading UTF-8 byte-order mark and existing CRLF trivia.
-The example CLI accepts only valid UTF-8 and preserves those bytes for both files
-and standard streams; it does not normalize line endings.
-
-`ConstExprRewriteOptions` bounds evaluator node count and recursion depth. The
-defaults are 10,000 evaluated expression nodes and a depth of 256; a configured
-value below one is normalized to one. These limits bound expression-evaluator
-work; the runner still has to parse and traverse the source, and the limits cannot
-interrupt arbitrary annotated code.
-
-## Performance instrumentation and corpus coverage
-
-`ConstExprRewriteOptions(enableSignposts: true)` emits Darwin Instruments
-intervals for parse/diagnostics, operator folding, evaluation, certification,
-source materialization, and terminal extraction. Aggregate events report nodes,
-candidate registrations, type-cache hits/misses, and rendered replacement counts;
-non-Darwin builds use no-op instrumentation. The release SwiftPM profiling driver
-is documented under `Scripts/Performance`.
-
-`Scripts/PackageIndex/run.py` performs a resumable, single-process fast-path scan
-against the pinned `SwiftPackageIndex/PackageList` commit. It supports limits,
-deterministic samples, a full scan, and optional shallow-clone executing-loader
-crosschecks. Reports include index/fetched/supported-tools coverage, structured
-fallback groups with representative repositories, cold and warm percentiles,
-throughput, content hashes, and wall time.
-
-## Safety contract
-
-`@ConstExpr` code runs in the rewriting process. Annotating a declaration promises
-that it is deterministic, terminating, nonmutating, and safe to execute during a
-build. ConstExpr does not sandbox registered code and cannot prevent an annotated
-call from trapping, exiting the process, looping forever, accessing files or the
-network, or producing another side effect.
-
-Treat both the registry and input source as trusted build inputs. An input file can
-choose a registered declaration and literal arguments, thereby causing linked code
-to run. Results are produced on the host running the rewriter, so declarations must
-also avoid host-dependent time, locale, environment, filesystem, and architecture
-behavior when output needs to be reproducible.
-
-Registrations and registries are `Sendable`, and manual invocation/operator
-callbacks are `@Sendable`. Any captured state must therefore be `Sendable` and
-safe for concurrent access. This type-level contract does not make the linked
-declaration pure or thread-safe, and the runner does not serialize calls made by
-separate rewrites.
-
-Manual static-type descriptors are trusted semantic metadata. In particular,
-erased existential metatypes do not reveal class bounds or arbitrary protocol
-conformance, so a manual descriptor's class-bound flag and source-type predicate
-cannot be independently proved by the runtime. The macro emits compiler-checked
-witnesses; manual registrations must keep these claims consistent with Swift.
-Manual registrations must also set `isThrowing: true` whenever their callback
-represents a throwing declaration or operator; the default is `false`.
-
-## Package.swift and consumer workflow
-
-`Examples/LibraryAuthor` contains a bounded, annotated PackageDescription facade
-plus a normal const-enabled library and two exported registry-provider products.
-`Examples/Consumer` is a separate stock Swift package. Its `build.sh` constructs a
-consumer-specific rewrite driver, stages and rewrites both the manifest and source
-files, validates the staged manifest with SwiftPM, and builds it without changing
-the checked-in package:
-
-```sh
-cd Examples/Consumer
-./build.sh --run
-```
-
-This external bootstrap is necessary because SwiftPM evaluates `Package.swift`
-before build-tool plugins run or a dependency graph exists. The facade is pinned
-to a deliberately small API surface; it does not make every SwiftPM manifest or
-extension-defined PackageDescription API automatically evaluable. See
-[Package manifest evaluation](Documentation/PackageManifests.md) and the
-[example walkthrough](Examples/README.md) for the supported construction and
-literal rules, plugin boundary, and staging flow.
-
-## Current limitations
-
-The initial implementation intentionally excludes async, `rethrows`, typed
-`throws(E)`, and generic declarations; `Void`, `Never`, opaque, or function-valued
-results; `inout`, ownership-qualified, ordinary variadic, autoclosure, and closure-valued
-parameters; mutating or consuming methods; mutation/data-flow analysis; and
-compiler-complete overload resolution. Generated nominal providers inspect
-explicit declarations in the primary type body; synthesized members, unrelated
-extensions, and private callable members are not automatically registered.
-Annotate an extension with `@ConstExprMembers` to collect every eligible
-immediate member, use `@ConstExprIgnored` for an explicit opt-out, or annotate a
-single declaration directly when strict diagnostics are useful.
-The narrow variadic exception is a directly declared `ExpressibleByArrayLiteral`
-witness, whose generated adapter is limited to 32 elements unless an explicit
-array-backed adapter is registered.
-An annotated nominal may be nested in a nongeneric struct, class, or enum, or
-directly in a nongeneric, unconstrained extension. It is then selected with its
-qualified type spelling. Local nominals and nominals nested in generic, protocol,
-actor, or constrained-extension contexts are unsupported. A generic nominal bulk
-annotation is ignored without producing a provider.
-
-Generated member adapters owner-qualify `Self` and owner-local type names.
-Recursively self-contained defaults (`nil`, literals, arrays, dictionaries, and
-tuples of those values) use a linear copied-default adapter with no count limit.
-Other defaults use omission branches through eight defaulted parameters so Swift
-evaluates them in declaration context; larger/nontrivial cases use a manual
-label-keyed adapter.
-Caller-location defaults, implicitly-unwrapped optional types, and
-global-actor-isolated declarations are explicitly unsupported and receive macro
-diagnostics. Parameterized existential types such as `any Collection<Int>` are
-also rejected while the package retains its macOS 11 deployment target, because
-their runtime metatype support starts on macOS 13. Plain existentials such as
-`any CustomStringConvertible` are supported. Use nominal annotations for a
-primary-body group and direct member annotations for isolated/extension APIs;
-custom operators still use manual registration factories. Imported operator
-declarations do not have to be repeated in every input: the runner can synthesize
-a temporary parser declaration from consistent registration metadata. Infix
-registrations should name a standard precedence group or one declared in the
-input; conflicting metadata is diagnosed and never executed.
-
-See [Safety and limitations](Documentation/Safety.md) for the trust boundary and
-the distinction between syntax-level proof and Swift semantic type checking.
-
-## Example executable
-
-The package includes a runner linked to the example registry:
+Run the registry-specific example rewriter with:
 
 ```sh
 swift run swift-constexpr-example Input.swift
 swift run swift-constexpr-example --output Rewritten.swift Input.swift
 cat Input.swift | swift run swift-constexpr-example -
-swift run swift-constexpr-example --fail-on-diagnostics Input.swift
 ```
 
-This executable is intentionally registry-specific. Applications with their own
-annotated libraries build a small executable around their own registry. It exits
-with status `2` when `--fail-on-diagnostics` sees any note, warning, or error;
-the rewritten UTF-8 source is still emitted before that status is returned.
-Without the flag, diagnostics are printed to stderr and a completed rewrite exits
-successfully. Unexpected internal failures use status `1`, invalid arguments `64`,
-input failures `66`, and output failures `74`. Use `--output -` for stdout and `--`
-before an input path beginning with `-`.
+Run the test suite with strict warnings and dependency imports using:
+
+```sh
+swift test -Xswiftc -warnings-as-errors \
+  --explicit-target-dependency-import-check error
+```
