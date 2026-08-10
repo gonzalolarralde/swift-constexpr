@@ -1,7 +1,7 @@
 # ConstExpr architecture
 
-ConstExpr is a linked source rewriter, not an interpreter and not a compiler
-optimization pass. The process that performs a rewrite imports both the
+ConstExpr is a linked source evaluator/rewriter, not a Swift interpreter and not
+a compiler optimization pass. The host process imports both the
 `ConstExpr` runtime and the library containing the declarations it is allowed to
 execute. Macro-generated adapters call those already-compiled declarations. The
 package requires Swift 6.3 or newer and currently deploys to macOS 11 or newer.
@@ -15,11 +15,15 @@ The package has four layers:
    containing registrations for sufficiently visible explicit initializers,
    nonmutating/nonconsuming methods, explicitly typed properties with ordinary
    getters, enum cases, and read-only instance subscripts in its primary body.
+   Eligible members can also be annotated directly in a type or extension;
+   package-scoped peers erase their public signature to keep implementation
+   dependencies out of a library's public interface.
 2. `#constExprRegistry(...)` turns explicit declaration references into one
    immutable `ConstExprRegistry` value. Function casts select overloads.
 3. `ConstExprRunner` parses a complete source file, folds Swift operator
    sequences with `SwiftOperators`, tracks lexical constants, and evaluates
-   syntax bottom-up.
+   syntax bottom-up. Its terminal API can instead return a named linked value in
+   permissive or certifying mode, including from a caller-supplied syntax tree.
 4. `ConstExprValue` carries either a renderable scalar/collection or an opaque
    runtime value. An opaque value can be the receiver of another registered
    operation even though it cannot itself be emitted as source.
@@ -33,6 +37,17 @@ Generated peers refer to runtime support through the public
 `_ConstExprRuntime` namespace, avoiding collisions with ordinary support-type
 names. That namespace name is reserved in client scopes where `@ConstExpr` or
 `#constExprRegistry` expands.
+
+Generated nominal providers and freestanding registry concatenations use a
+stable maximum chunk size of 32. Private provider chunks and bounded
+concatenation trees preserve declaration order without adding generated helpers
+to the annotated library's public interface.
+
+A companion freestanding expression macro links `ConstExprMacroSupport` with one
+concrete registry. `#evaluate { ... }` then runs the same certifying terminal
+algorithm during macro expansion. Expression macros cannot discover arbitrary
+consumer-module declarations, so that explicit companion target is the semantic
+lookup boundary.
 
 ## Evaluation algorithm
 
@@ -113,6 +128,17 @@ instance, or static call arguments, nil coalescing, and structural annotations. 
 type alias or context available only through an unresolved outer expression is not
 guessed; the affected source is preserved.
 
+Type lookup uses canonical structural keys rather than executable registrations
+for every concrete container specialization. `T?` and `Optional<T>`, `[T]` and
+`Array<T>`, dictionary spellings, `Set<T>`, and tuple shapes normalize to the same
+recursive representation. Optional, Array, Dictionary, Set, and tuple values are
+materialized through intrinsic generic metadata; exact `[Product]`-style metatypes
+remain callable signature facts, not separate user registrations. A registry
+compiles its name/kind/owner, literal-adapter, and canonical-type indexes lazily
+once; composing registry fragments therefore does not build indexes that are
+immediately discarded. Each evaluation caches source-type and argument-label
+resolution.
+
 Custom terminal types can conform to `ConstExprRepresentable`. Custom parameter
 types can conform to `ConstExprValueDecodable`. Most annotated nominal values do
 not need either conformance when they are only intermediate receivers. A custom
@@ -130,7 +156,8 @@ unboxed source tuple literal of that shape remains unsupported.
 Registrations describe the declaration kind, owner type, external labels,
 parameter types, recursively structured static-type descriptors, defaulted
 positions, result type, throwing effect, operator metadata, array-literal
-element type and optional arity bound, and a stable declaration ID.
+element type and optional arity bound, introduced/deprecated/obsoleted availability,
+`_disfavoredOverload` preference, and a stable declaration ID.
 Macro-generated descriptors retain tuple/container element and
 existential information that cannot be recovered reliably from an erased
 `Any.Type`; a manual registration can provide the same descriptors explicitly.
@@ -145,6 +172,15 @@ value conversions without invoking user code. Exact types rank ahead of
 literal-directed conversions, and an otherwise-equivalent exact-arity overload
 ranks ahead of one requiring defaults. If there is no unique best candidate,
 source is retained and an ambiguity diagnostic is returned.
+
+An availability context supplies versions for source domains such as
+`_PackageDescription`. Unavailable entries are removed before ranking; if a
+constrained overload set cannot be proven because its domain is unknown,
+certifying evaluation falls back instead of guessing. A registration that is
+deprecated in the active context is also removed, preserving the compiler's
+diagnostic on the original declaration. `_disfavoredOverload` is
+used only after ordinary conversions, specificity, and omitted-default ranking
+tie.
 
 Leading-dot syntax is resolved only from an available expected type. For
 `.init(...)`, the evaluator considers initializer registrations owned by that
@@ -181,12 +217,16 @@ expected context remains source rather than selecting or partially invoking a
 witness.
 
 Default metadata is recorded because a Swift function value does not carry default
-arguments. A free-function peer evaluates its copied defaults in the same source
-file. Nominal-member adapters instead select an invocation branch that leaves
-absent arguments out of the call to the original declaration, so Swift evaluates
-each default in the declaration's lexical context. Caller-location defaults such
-as `#file` and `#line` are rejected because the rewriting process would be a
-different call site.
+arguments. Recursively self-contained literal defaults are copied into a linear
+adapter and passed explicitly, so declarations such as `Package.init` do not need
+an exponential omission switch. Nontrivial defaults use native omission branches
+through the bounded safe count so Swift evaluates them in declaration context.
+When more than eight defaults include a non-literal expression, the macro omits
+that registration with a warning instead of emitting an adapter that cannot
+execute; a label-keyed manual adapter is the supported specialization point.
+Exceptional manual adapters can consume checked values by source label rather than
+numeric slot. Caller-location defaults such as `#file` and `#line` are rejected
+because the rewriting process would be a different call site.
 
 Module-qualified functions/constants and qualified static members are supported.
 The qualification root must not be shadowed by a lexical declaration, and a
@@ -249,6 +289,15 @@ authoritative, and its registration metadata is ignored.
 Throwing operator factories must set `isThrowing: true`, which makes the same
 source-level `try` gate apply as for other throwing registrations.
 
+## Instrumentation
+
+On Darwin, opt-in `os_signpost` intervals cover parsing and diagnostics, registry
+index construction or cached access, operator folding, expression evaluation,
+strict certification, source materialization, and terminal extraction. Aggregate
+events report node count, overload candidates, type lookups and cache outcomes,
+and rendered replacement count. Other platforms compile a no-op implementation.
+This keeps profiling useful without emitting an event for every syntax node.
+
 ## Trust boundary
 
 Every adapter executes in-process. Annotation is a promise that the declaration
@@ -262,15 +311,23 @@ generics; `Void`, `Never`, opaque, and function-valued results; ordinary
 variadics; `inout`,
 ownership-qualified, autoclosure, and closure-valued parameters; mutating or
 consuming methods; lazy properties and mutating, consuming, or effectful getters;
-static, writable, or effectful subscripts; member-scoped availability or SPI;
+static, writable, or effectful subscripts; unsafe SPI/isolation contexts;
 dynamic members; overridable instance methods, properties, and subscripts on a
 non-final class; implicitly-unwrapped optional types; global-actor isolation;
-compiler-synthesized members; members from unrelated extensions; and callables
-with more than eight defaulted parameters. A `final` member on a non-final class
-is eligible. Whole-declaration availability and SPI are copied to the peer.
+compiler-synthesized members; and members from unrelated extensions unless they
+are annotated directly. A `final` member on a non-final class is eligible.
+Self-contained literal defaults have no eight-parameter cap; nontrivial copied
+defaults retain the bounded omission path. Availability is recorded on generated
+registrations and filtered by an explicit resolution context. Whole-nominal
+providers omit unconditionally unavailable members and deprecated members that
+cannot be invoked warning-free. A static stored `let` on a value type may copy a
+recursively self-contained initializer into a contextually typed adapter; class
+owners are excluded because reconstructing a singleton could change identity.
+The adapter is unavailable at and after its recorded deprecation boundary.
 Unsupported semantic attributes receive macro diagnostics rather than being
 guessed. A nested annotated nominal is supported in a nongeneric struct, class,
-or enum; local, generic-context, protocol, actor, and extension nesting is not.
+or enum, or directly in a nongeneric, unconstrained extension; local,
+generic-context, protocol, actor, and constrained-extension nesting is not.
 Other unsupported declarations are left out of the generated provider.
 The sole variadic exception is a directly visible
 `ExpressibleByArrayLiteral` witness, represented by dedicated repeated-element

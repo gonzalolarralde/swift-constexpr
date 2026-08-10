@@ -87,6 +87,27 @@ for diagnostic in result.diagnostics {
 }
 ```
 
+For an all-or-nothing fast path, evaluate a global binding without rendering
+rewritten source:
+
+```swift
+switch ConstExprRunner(registry: registry).evaluate(
+    source: source,
+    binding: "package",
+    as: Package.self,
+    policy: .certifying
+) {
+case .success(let package): use(package)
+case .fallback(let reason): compileTheOriginalSource(reason)
+}
+```
+
+Certifying mode requires every active top-level item to be understood. It returns
+a structured fallback reason for unsupported syntax, ambiguity, availability,
+resource limits, or type mismatch. An overload taking `SourceFileSyntax` lets a
+host reuse an already parsed/configured tree. Terminal evaluation propagates
+linked values without rendering or reparsing replacements.
+
 For an overloaded free function, disambiguate the registry entry with a cast:
 
 ```swift
@@ -121,6 +142,29 @@ let incrementRegistration = ConstExprRegistration(
 let registry = ConstExprRegistry(incrementRegistration)
 ```
 
+For a declaration with many repeated or defaulted parameter types, use the
+label-keyed factory instead of decoding numeric slots. Labels remain part of
+the declared overload identity, while the callback receives checked lookup by
+source label:
+
+```swift
+let packageRegistration = ConstExprRegistration.labelKeyed(
+    name: "Package",
+    kind: .initializer,
+    ownerType: Package.self,
+    parameterLabels: ["name", "products", "targets"],
+    parameterTypes: [String.self, [Product].self, [Target].self],
+    defaultedParameters: [1, 2],
+    resultType: Package.self
+) { _, arguments in
+    ConstExprValue(Package(
+        name: try arguments.require("name", as: String.self),
+        products: try arguments.optional("products", as: [Product].self) ?? [],
+        targets: try arguments.optional("targets", as: [Target].self) ?? []
+    ))
+}
+```
+
 Manual descriptors, throwing flags, source type spellings, and invocation code
 are trusted semantic claims; prefer macro-generated adapters when possible.
 
@@ -130,24 +174,37 @@ The generated adapters currently cover:
 | --- | --- |
 | Free function | A synchronous, nongeneric function with supported value parameters and either no throwing effect or ordinary untyped `throws` |
 | Global `let` | One file-scope immutable identifier binding |
+| Direct initializer, method, property, or subscript | A peer beside an eligible declaration in a primary type or extension |
 | `struct`, `class` | Explicit accessible initializers, nonmutating/nonconsuming methods, static/instance nonlazy properties with explicit supported value types and ordinary getters, read-only instance subscripts, and a directly declared array-literal witness |
 | `enum` | The same members plus cases with or without associated values |
 
 Private stored state does not need to be registered. A public method can use it
 normally when the generated adapter invokes the compiled method. A member whose
 access is lower than the annotated nominal's generated provider is not exposed as
-a registration. Members declared only in unrelated extensions and
-compiler-synthesized initializers are not visible to the attached macro. On a
+a registration. An unrelated extension is not discovered automatically by a
+nominal annotation, but its eligible members can now be annotated directly.
+Compiler-synthesized initializers remain invisible. On a
 non-final class, instance methods, properties, and subscripts must themselves be
 `final`; `dynamic` members are always skipped because dispatch could select an
 unregistered implementation. Effectful, mutating, or consuming getters are also
 skipped.
 
-Availability and SPI attributes on the directly annotated declaration are copied
-to its generated peer. An individual nominal member with its own availability or
-SPI constraint is not registered because the shared provider cannot reproduce that
-member-only context; member-level availability produces a warning. Global-actor
-members are likewise omitted.
+Availability metadata and `_disfavoredOverload` preference are copied into
+generated registrations, including eligible members of an annotated nominal. A
+runner filters introduced/deprecated/obsoleted domains through
+`ConstExprAvailabilityContext`; if it cannot prove the active overload set,
+certifying evaluation falls back. Deprecated registrations are not executed in
+their deprecated era. Whole-nominal generation omits unconditionally unavailable
+members and deprecated members that cannot be referenced warning-free. A static
+stored `let` on a value type may instead copy a recursively self-contained,
+contextually typed initializer into its adapter; its availability metadata still
+forces fallback at and after deprecation. SPI and global-actor constraints remain
+conservative where the generated peer cannot reproduce their access or isolation.
+
+`@ConstExpr(registrationAccess: .package)` leaves the original public declaration
+unchanged while emitting a package-scoped, type-erased provider peer. A sibling
+target in the same package can aggregate it, while neither the ConstExpr import nor
+the generated provider appears in the module's public interface.
 
 Because a syntax macro cannot resolve whether an arbitrary attribute is a custom
 global actor or a declaration-transforming macro, declaration attributes use a
@@ -192,12 +249,35 @@ Labels, defaults, literal conversions, and overload ranks are then checked in th
 usual way. If the context is absent or more than one best candidate remains, the
 source is retained for the Swift compiler.
 
+## Inline `#evaluate`
+
+ConstExpr includes reusable macro-side support for library-owned companion
+expression macros:
+
+```swift
+let value: Int = #evaluate {
+    let input = 41
+    increment(input)
+}
+```
+
+The companion macro target links the library's concrete registry and delegates to
+`ConstExprEvaluateMacroSupport`. V1 accepts a synchronous, nonthrowing closure
+containing immutable local `let` bindings and a final expression or `return`. A
+fully known, renderable result expands to its constant expression. Unknown
+captures, unsupported syntax, ambiguity, and unrenderable results expand silently
+to the original expression/closure invocation, leaving Swift's type checker and
+diagnostics authoritative. `ConstExprEvaluateExampleMacros` demonstrates the thin
+provider target; applications define the public macro name in their own library.
+
 A custom `ExpressibleByStringLiteral`, `ExpressibleByIntegerLiteral`,
 `ExpressibleByFloatLiteral`, or `ExpressibleByBooleanLiteral` type can receive a
-source literal when its conformance and corresponding literal initializer are both
-in an annotated primary declaration. ConstExpr verifies the linked conformance,
-its associated literal type, and the exact registered initializer shape before it
-executes anything. Built-in arrays recursively provide element context, so a
+source literal when the linked type conforms and its corresponding literal
+initializer is registered. A whole-nominal annotation discovers a witness in the
+primary declaration; an extension witness can instead carry its own direct
+`@ConstExpr` annotation. ConstExpr verifies the linked conformance, its associated
+literal type, and the exact registered initializer shape before it executes
+anything. Built-in arrays recursively provide element context, so a
 `[Dependency]` can be written as `["Core", "Logging"]` when `Dependency` has a
 registered string-literal initializer. `Array` and `Set` have unlimited standard
 adapters through the same array-literal path, including PackageDescription-style
@@ -231,8 +311,9 @@ ConstExprRegistration.arrayLiteral(
 
 A missing expected type, unknown element, or ambiguous custom adapter leaves the
 outer literal unresolved; independently safe child rewrites may still be
-retained. An extension-only literal conformance or witness remains compiler work
-because the attached macro cannot discover it.
+retained. Unlike scalar literal initializers, an extension-only array-literal
+witness remains compiler work because the whole-nominal macro cannot discover it
+and the ordinary direct-member path does not support variadics.
 
 An adapter for an ordinary `throws` declaration executes only when the source
 call is covered by `try`, `try?`, or `try!`. A call missing that required marker
@@ -382,6 +463,22 @@ value below one is normalized to one. These limits bound expression-evaluator
 work; the runner still has to parse and traverse the source, and the limits cannot
 interrupt arbitrary annotated code.
 
+## Performance instrumentation and corpus coverage
+
+`ConstExprRewriteOptions(enableSignposts: true)` emits Darwin Instruments
+intervals for parse/diagnostics, operator folding, evaluation, certification,
+source materialization, and terminal extraction. Aggregate events report nodes,
+candidate registrations, type-cache hits/misses, and rendered replacement counts;
+non-Darwin builds use no-op instrumentation. The release SwiftPM profiling driver
+is documented under `Scripts/Performance`.
+
+`Scripts/PackageIndex/run.py` performs a resumable, single-process fast-path scan
+against the pinned `SwiftPackageIndex/PackageList` commit. It supports limits,
+deterministic samples, a full scan, and optional shallow-clone executing-loader
+crosschecks. Reports include index/fetched/supported-tools coverage, structured
+fallback groups with representative repositories, cold and warm percentiles,
+throughput, content hashes, and wall time.
+
 ## Safety contract
 
 `@ConstExpr` code runs in the rewriting process. Annotating a declaration promises
@@ -438,28 +535,32 @@ The initial implementation intentionally excludes async, `rethrows`, typed
 `throws(E)`, and generic declarations; `Void`, `Never`, opaque, or function-valued
 results; `inout`, ownership-qualified, ordinary variadic, autoclosure, and closure-valued
 parameters; mutating or consuming methods; mutation/data-flow analysis; and
-compiler-complete overload resolution. Generated type providers inspect explicit
-declarations in the primary type body; synthesized members, unrelated extensions,
-and private callable members are not automatically registered.
+compiler-complete overload resolution. Generated nominal providers inspect
+explicit declarations in the primary type body; synthesized members, unrelated
+extensions, and private callable members are not automatically registered. An
+eligible declaration in an extension can instead carry its own `@ConstExpr`.
 The narrow variadic exception is a directly declared `ExpressibleByArrayLiteral`
 witness, whose generated adapter is limited to 32 elements unless an explicit
 array-backed adapter is registered.
-An annotated nominal may be nested in a nongeneric struct, class, or enum, and is
-then registered with its qualified type spelling. Local nominals and nominals
-nested in generic, protocol, actor, or extension contexts are unsupported.
+An annotated nominal may be nested in a nongeneric struct, class, or enum, or
+directly in a nongeneric, unconstrained extension. It is then selected with its
+qualified type spelling. Local nominals and nominals nested in generic, protocol,
+actor, or constrained-extension contexts are unsupported.
 
-Within those direct nominal members, generated adapters owner-qualify `Self` and
-owner-local type names. They invoke the original declaration with absent default
-arguments still omitted, preserving defaults that rely on declaration context.
+Generated member adapters owner-qualify `Self` and owner-local type names.
+Recursively self-contained defaults (`nil`, literals, arrays, dictionaries, and
+tuples of those values) use a linear copied-default adapter with no count limit.
+Other defaults use omission branches through eight defaulted parameters so Swift
+evaluates them in declaration context; larger/nontrivial cases use a manual
+label-keyed adapter.
 Caller-location defaults, implicitly-unwrapped optional types, and
 global-actor-isolated declarations are explicitly unsupported and receive macro
 diagnostics. Parameterized existential types such as `any Collection<Int>` are
 also rejected while the package retains its macOS 11 deployment target, because
 their runtime metatype support starts on macOS 13. Plain existentials such as
-`any CustomStringConvertible` are supported. Generated callables support at most
-eight defaulted parameters.
-Attach `@ConstExpr` once to a nominal rather than to its individual members, and
-use the manual registration factories for custom operators. Imported operator
+`any CustomStringConvertible` are supported. Use nominal annotations for a
+primary-body group and direct member annotations for isolated/extension APIs;
+custom operators still use manual registration factories. Imported operator
 declarations do not have to be repeated in every input: the runner can synthesize
 a temporary parser declaration from consistent registration metadata. Infix
 registrations should name a standard precedence group or one declared in the

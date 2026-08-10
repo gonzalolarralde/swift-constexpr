@@ -1,195 +1,4 @@
-enum ConstExprOperatorResult {
-    case value(ConstExprValue)
-    case unsupported
-    case failure(code: String, message: String)
-}
-
-enum ConstExprOperators {
-    static func prefix(_ symbol: String, operand: ConstExprValue) -> ConstExprOperatorResult {
-        if operand.staticType == Int.self {
-            guard let value = try? operand.require(Int.self) else { return .unsupported }
-            switch symbol {
-            case "+": return .value(ConstExprValue(value))
-            case "-":
-                let result = Int.zero.subtractingReportingOverflow(value)
-                return result.overflow
-                    ? overflow(symbol)
-                    : .value(ConstExprValue(result.partialValue))
-            case "~": return .value(ConstExprValue(~value))
-            default: return .unsupported
-            }
-        }
-
-        if operand.staticType == Double.self {
-            guard let value = try? operand.require(Double.self) else { return .unsupported }
-            switch symbol {
-            case "+": return .value(ConstExprValue(value))
-            case "-": return .value(ConstExprValue(-value))
-            default: return .unsupported
-            }
-        }
-
-        if operand.staticType == Float.self {
-            guard let value = try? operand.require(Float.self) else { return .unsupported }
-            switch symbol {
-            case "+": return .value(ConstExprValue(value))
-            case "-": return .value(ConstExprValue(-value))
-            default: return .unsupported
-            }
-        }
-
-        if operand.staticType == Bool.self, symbol == "!",
-            let value = try? operand.require(Bool.self)
-        {
-            return .value(ConstExprValue(!value))
-        }
-
-        if let result = signedPrefix(symbol, operand, as: Int8.self) { return result }
-        if let result = signedPrefix(symbol, operand, as: Int16.self) { return result }
-        if let result = signedPrefix(symbol, operand, as: Int32.self) { return result }
-        if let result = signedPrefix(symbol, operand, as: Int64.self) { return result }
-        if let result = unsignedPrefix(symbol, operand, as: UInt.self) { return result }
-        if let result = unsignedPrefix(symbol, operand, as: UInt8.self) { return result }
-        if let result = unsignedPrefix(symbol, operand, as: UInt16.self) { return result }
-        if let result = unsignedPrefix(symbol, operand, as: UInt32.self) { return result }
-        if let result = unsignedPrefix(symbol, operand, as: UInt64.self) { return result }
-
-        return .unsupported
-    }
-
-    static func infix(
-        _ symbol: String,
-        left: ConstExprValue,
-        right: ConstExprValue
-    ) -> ConstExprOperatorResult {
-        if case .array(let lhs) = left.payload,
-            case .array(let rhs) = right.payload
-        {
-            switch symbol {
-            case "+":
-                guard let typeName = left.explicitTypeName,
-                    typeName == right.explicitTypeName
-                else { return .unsupported }
-                return .value(.array(lhs + rhs, typeName: typeName))
-            case "==", "!=":
-                guard let typeName = left.explicitTypeName,
-                    typeName == right.explicitTypeName
-                else { return .unsupported }
-                guard let equal = valuesEqual(left, right) else { return .unsupported }
-                return .value(ConstExprValue(symbol == "==" ? equal : !equal))
-            default:
-                return .unsupported
-            }
-        }
-
-        if case .optional = left.payload, case .optional = right.payload,
-            symbol == "==" || symbol == "!="
-        {
-            guard let equal = valuesEqual(left, right) else { return .unsupported }
-            return .value(ConstExprValue(symbol == "==" ? equal : !equal))
-        }
-
-        if (symbol == "==" || symbol == "!="),
-            (left.payload.isStructural || right.payload.isStructural)
-        {
-            guard let typeName = left.explicitTypeName,
-                typeName == right.explicitTypeName
-            else { return .unsupported }
-            guard let equal = valuesEqual(left, right) else { return .unsupported }
-            return .value(ConstExprValue(symbol == "==" ? equal : !equal))
-        }
-
-        if symbol == "<<" || symbol == ">>" {
-            if let result = fixedWidthShift(symbol, left, right, as: Int.self) { return result }
-            if let result = fixedWidthShift(symbol, left, right, as: Int8.self) { return result }
-            if let result = fixedWidthShift(symbol, left, right, as: Int16.self) { return result }
-            if let result = fixedWidthShift(symbol, left, right, as: Int32.self) { return result }
-            if let result = fixedWidthShift(symbol, left, right, as: Int64.self) { return result }
-            if let result = fixedWidthShift(symbol, left, right, as: UInt.self) { return result }
-            if let result = fixedWidthShift(symbol, left, right, as: UInt8.self) { return result }
-            if let result = fixedWidthShift(symbol, left, right, as: UInt16.self) { return result }
-            if let result = fixedWidthShift(symbol, left, right, as: UInt32.self) { return result }
-            if let result = fixedWidthShift(symbol, left, right, as: UInt64.self) { return result }
-        }
-
-        if left.staticType == Int.self, right.staticType == Int.self,
-            let lhs = try? left.require(Int.self),
-            let rhs = try? right.require(Int.self)
-        {
-            return integer(symbol, lhs, rhs)
-        }
-
-        if let result = fixedWidthInteger(symbol, left, right, as: Int8.self) { return result }
-        if let result = fixedWidthInteger(symbol, left, right, as: Int16.self) { return result }
-        if let result = fixedWidthInteger(symbol, left, right, as: Int32.self) { return result }
-        if let result = fixedWidthInteger(symbol, left, right, as: Int64.self) { return result }
-        if let result = fixedWidthInteger(symbol, left, right, as: UInt.self) { return result }
-        if let result = fixedWidthInteger(symbol, left, right, as: UInt8.self) { return result }
-        if let result = fixedWidthInteger(symbol, left, right, as: UInt16.self) { return result }
-        if let result = fixedWidthInteger(symbol, left, right, as: UInt32.self) { return result }
-        if let result = fixedWidthInteger(symbol, left, right, as: UInt64.self) { return result }
-
-        if left.staticType == Double.self, right.staticType == Double.self,
-            let lhs = try? left.require(Double.self),
-            let rhs = try? right.require(Double.self)
-        {
-            return floating(symbol, lhs, rhs)
-        }
-
-        if left.staticType == Float.self, right.staticType == Float.self,
-            let lhs = try? left.require(Float.self),
-            let rhs = try? right.require(Float.self)
-        {
-            return floating(symbol, lhs, rhs)
-        }
-
-        if left.staticType == Bool.self, right.staticType == Bool.self,
-            let lhs = try? left.require(Bool.self),
-            let rhs = try? right.require(Bool.self)
-        {
-            switch symbol {
-            case "&&": return .value(ConstExprValue(lhs && rhs))
-            case "||": return .value(ConstExprValue(lhs || rhs))
-            case "==": return .value(ConstExprValue(lhs == rhs))
-            case "!=": return .value(ConstExprValue(lhs != rhs))
-            default: return .unsupported
-            }
-        }
-
-        if left.staticType == String.self, right.staticType == String.self,
-            let lhs = try? left.require(String.self),
-            let rhs = try? right.require(String.self)
-        {
-            switch symbol {
-            case "+": return .value(ConstExprValue(lhs + rhs))
-            case "==": return .value(ConstExprValue(lhs == rhs))
-            case "!=": return .value(ConstExprValue(lhs != rhs))
-            case "<": return .value(ConstExprValue(lhs < rhs))
-            case "<=": return .value(ConstExprValue(lhs <= rhs))
-            case ">": return .value(ConstExprValue(lhs > rhs))
-            case ">=": return .value(ConstExprValue(lhs >= rhs))
-            default: return .unsupported
-            }
-        }
-
-        if left.staticType == Character.self, right.staticType == Character.self,
-            let lhs = try? left.require(Character.self),
-            let rhs = try? right.require(Character.self)
-        {
-            switch symbol {
-            case "==": return .value(ConstExprValue(lhs == rhs))
-            case "!=": return .value(ConstExprValue(lhs != rhs))
-            case "<": return .value(ConstExprValue(lhs < rhs))
-            case "<=": return .value(ConstExprValue(lhs <= rhs))
-            case ">": return .value(ConstExprValue(lhs > rhs))
-            case ">=": return .value(ConstExprValue(lhs >= rhs))
-            default: return .unsupported
-            }
-        }
-
-        return .unsupported
-    }
-
+extension ConstExprOperators {
     static func valuesEqual(_ left: ConstExprValue, _ right: ConstExprValue) -> Bool? {
         guard
             hasSameEqualityShape(
@@ -297,7 +106,7 @@ enum ConstExprOperators {
     /// Swift's built-in structural equality overloads compare one concrete
     /// static type. Equal-looking runtime payloads are not enough: for example,
     /// `nil as Int?` and `nil as String?` cannot be compared in Swift source.
-    private static func hasSameEqualityShape(
+    static func hasSameEqualityShape(
         _ left: ConstExprStaticTypeDescriptor,
         _ right: ConstExprStaticTypeDescriptor
     ) -> Bool {
@@ -327,7 +136,7 @@ enum ConstExprOperators {
     /// satisfies Swift's conditional `Equatable` conformances. In particular,
     /// empty `[Any]`/`[Key: Any]` values and `nil as Any?` have no child value
     /// from which an unsupported constraint could otherwise be discovered.
-    private static func supportsBuiltInEquality(
+    static func supportsBuiltInEquality(
         _ descriptor: ConstExprStaticTypeDescriptor
     ) -> Bool {
         switch descriptor {
@@ -347,7 +156,7 @@ enum ConstExprOperators {
                 || type == UInt64.self
                 || type == Float.self
                 || type == Double.self
-        case .optional(let wrapped), .array(let wrapped):
+        case .optional(let wrapped), .array(let wrapped), .set(let wrapped):
             return supportsBuiltInEquality(wrapped)
         case .dictionary(let key, let value):
             return supportsBuiltInEquality(key) && supportsBuiltInEquality(value)
@@ -356,7 +165,7 @@ enum ConstExprOperators {
         }
     }
 
-    private static func signedPrefix<T: FixedWidthInteger & SignedInteger>(
+    static func signedPrefix<T: FixedWidthInteger & SignedInteger>(
         _ symbol: String,
         _ operand: ConstExprValue,
         as type: T.Type
@@ -372,7 +181,7 @@ enum ConstExprOperators {
         }
     }
 
-    private static func unsignedPrefix<T: FixedWidthInteger & UnsignedInteger>(
+    static func unsignedPrefix<T: FixedWidthInteger & UnsignedInteger>(
         _ symbol: String,
         _ operand: ConstExprValue,
         as type: T.Type
@@ -385,7 +194,7 @@ enum ConstExprOperators {
         }
     }
 
-    private static func fixedWidthInteger<T: FixedWidthInteger>(
+    static func fixedWidthInteger<T: FixedWidthInteger>(
         _ symbol: String,
         _ left: ConstExprValue,
         _ right: ConstExprValue,
@@ -432,7 +241,7 @@ enum ConstExprOperators {
         }
     }
 
-    private static func fixedWidthShift<T: FixedWidthInteger>(
+    static func fixedWidthShift<T: FixedWidthInteger>(
         _ symbol: String,
         _ left: ConstExprValue,
         _ right: ConstExprValue,
@@ -453,7 +262,7 @@ enum ConstExprOperators {
         }
     }
 
-    private static func normalizedShiftCount(
+    static func normalizedShiftCount(
         _ value: ConstExprValue,
         cappedAt cap: Int
     ) -> (isNegative: Bool, magnitude: Int)? {
@@ -470,7 +279,7 @@ enum ConstExprOperators {
         return nil
     }
 
-    private static func signedShiftCount<T: FixedWidthInteger & SignedInteger>(
+    static func signedShiftCount<T: FixedWidthInteger & SignedInteger>(
         _ value: ConstExprValue,
         as type: T.Type,
         cappedAt cap: Int
@@ -483,7 +292,7 @@ enum ConstExprOperators {
         return (false, Int(raw))
     }
 
-    private static func unsignedShiftCount<T: FixedWidthInteger & UnsignedInteger>(
+    static func unsignedShiftCount<T: FixedWidthInteger & UnsignedInteger>(
         _ value: ConstExprValue,
         as type: T.Type,
         cappedAt cap: Int
@@ -493,7 +302,7 @@ enum ConstExprOperators {
         return (false, Int(raw))
     }
 
-    private static func integer(_ symbol: String, _ lhs: Int, _ rhs: Int) -> ConstExprOperatorResult {
+    static func integer(_ symbol: String, _ lhs: Int, _ rhs: Int) -> ConstExprOperatorResult {
         switch symbol {
         case "+":
             let result = lhs.addingReportingOverflow(rhs)
@@ -530,7 +339,7 @@ enum ConstExprOperators {
         }
     }
 
-    private static func floating<T: BinaryFloatingPoint>(
+    static func floating<T: BinaryFloatingPoint>(
         _ symbol: String,
         _ lhs: T,
         _ rhs: T
@@ -550,16 +359,17 @@ enum ConstExprOperators {
         }
     }
 
-    private static func overflow(_ symbol: String) -> ConstExprOperatorResult {
+    static func overflow(_ symbol: String) -> ConstExprOperatorResult {
         .failure(code: "integer-overflow", message: "integer overflow while evaluating '\(symbol)'")
     }
 
-    private static func divisionByZero(_ symbol: String) -> ConstExprOperatorResult {
+    static func divisionByZero(_ symbol: String) -> ConstExprOperatorResult {
         .failure(code: "division-by-zero", message: "division by zero while evaluating '\(symbol)'")
     }
 }
 
-private extension ConstExprValue.Payload {
+
+extension ConstExprValue.Payload {
     var isStructural: Bool {
         switch self {
         case .optional, .array, .dictionary, .tuple: return true

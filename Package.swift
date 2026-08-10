@@ -12,6 +12,10 @@ let package = Package(
             name: "ConstExpr",
             targets: ["ConstExpr"]
         ),
+        .library(
+            name: "ConstExprMacroSupport",
+            targets: ["ConstExprMacroSupport"]
+        ),
         .executable(
             name: "swift-constexpr-example",
             targets: ["ConstExprExampleCLI"]
@@ -44,12 +48,48 @@ let package = Package(
             ]
         ),
         .target(
+            name: "ConstExprMacroSupport",
+            dependencies: [
+                "ConstExpr",
+                .product(name: "SwiftSyntax", package: "swift-syntax"),
+                .product(name: "SwiftSyntaxMacros", package: "swift-syntax"),
+            ]
+        ),
+        .target(
             name: "ConstExprExampleDefinitions",
             dependencies: ["ConstExpr"]
         ),
         .target(
             name: "ConstExprExampleRegistry",
             dependencies: ["ConstExpr", "ConstExprExampleDefinitions"]
+        ),
+        .macro(
+            name: "ConstExprEvaluateExampleMacros",
+            dependencies: [
+                "ConstExprMacroSupport",
+                "ConstExprExampleRegistry",
+                .product(name: "SwiftCompilerPlugin", package: "swift-syntax"),
+                .product(name: "SwiftSyntax", package: "swift-syntax"),
+                .product(name: "SwiftSyntaxMacros", package: "swift-syntax"),
+            ]
+        ),
+        .target(
+            name: "ConstExprEvaluateExample",
+            dependencies: [
+                "ConstExprEvaluateExampleMacros",
+                "ConstExprExampleDefinitions",
+            ]
+        ),
+        .target(
+            name: "ConstExprPackageInterfaceFixture",
+            dependencies: ["ConstExpr"]
+        ),
+        .target(
+            name: "ConstExprPackageInterfaceConsumerFixture",
+            dependencies: [
+                "ConstExpr",
+                "ConstExprPackageInterfaceFixture",
+            ]
         ),
         .executableTarget(
             name: "ConstExprExampleCLI",
@@ -71,6 +111,9 @@ let package = Package(
             name: "ConstExprMacrosTests",
             dependencies: [
                 "ConstExprMacros",
+                "ConstExprEvaluateExampleMacros",
+                .product(name: "SwiftParser", package: "swift-syntax"),
+                .product(name: "SwiftSyntaxMacroExpansion", package: "swift-syntax"),
                 .product(name: "SwiftSyntaxMacros", package: "swift-syntax"),
                 .product(name: "SwiftSyntaxMacrosTestSupport", package: "swift-syntax"),
             ]
@@ -81,6 +124,8 @@ let package = Package(
                 "ConstExpr",
                 "ConstExprExampleDefinitions",
                 "ConstExprExampleRegistry",
+                "ConstExprEvaluateExample",
+                "ConstExprPackageInterfaceConsumerFixture",
             ]
         ),
     ]

@@ -21,6 +21,7 @@ public indirect enum ConstExprStaticTypeDescriptor: Sendable {
     case optional(Self)
     case array(Self)
     case dictionary(key: Self, value: Self)
+    case set(Self)
     case tuple([Self])
 
     /// Creates the best descriptor available from runtime metadata alone.
@@ -44,6 +45,9 @@ public indirect enum ConstExprStaticTypeDescriptor: Sendable {
                 value: .inferred(components.value)
             )
         }
+        if let element = ConstExprValue.elementType(ofSetType: type) {
+            return .set(.inferred(element))
+        }
 
         let metatypeKind = String(reflecting: Swift.type(of: type))
         let existential = metatypeKind.hasSuffix(".Protocol")
@@ -60,7 +64,7 @@ public indirect enum ConstExprStaticTypeDescriptor: Sendable {
         switch self {
         case .leaf(let type, _, _, _, _):
             return type
-        case .optional, .array, .dictionary, .tuple:
+        case .optional, .array, .dictionary, .set, .tuple:
             // Swift cannot construct an arbitrary tuple metatype from erased
             // element metatypes, and a dictionary key's `Hashable` constraint
             // is likewise erased here. Registrations retain the authoritative
@@ -86,6 +90,8 @@ public indirect enum ConstExprStaticTypeDescriptor: Sendable {
         case .dictionary(let key, let value):
             guard let key = key.sourceName, let value = value.sourceName else { return nil }
             return "[\(key): \(value)]"
+        case .set(let element):
+            return element.sourceName.map { "Set<\($0)>" }
         case .tuple:
             // Element labels are not part of the recursive shape. Preserve the
             // authoritative reflected spelling already carried by a boxed
@@ -180,6 +186,14 @@ public indirect enum ConstExprStaticTypeDescriptor: Sendable {
             else { return nil }
             return max(keyRank, valueRank)
 
+        case let (.set(sourceElement), .set(targetElement)):
+            return conversionRank(
+                from: sourceElement,
+                sourceType: sourceType.flatMap(ConstExprValue.elementType(ofSetType:)),
+                to: targetElement,
+                targetType: targetType.flatMap(ConstExprValue.elementType(ofSetType:))
+            )
+
         case let (.tuple(sourceElements), .tuple(targetElements)):
             guard sourceElements.count == targetElements.count else { return nil }
             var labelRank = 0
@@ -252,6 +266,8 @@ public indirect enum ConstExprStaticTypeDescriptor: Sendable {
                 key: fillingMissingMetadata(from: sourceKey, into: targetKey),
                 value: fillingMissingMetadata(from: sourceValue, into: targetValue)
             )
+        case let (.set(source), .set(target)):
+            return .set(fillingMissingMetadata(from: source, into: target))
         case let (.tuple(source), .tuple(target)) where source.count == target.count:
             return .tuple(zip(source, target).map(fillingMissingMetadata(from:into:)))
         default:
@@ -278,6 +294,11 @@ public indirect enum ConstExprStaticTypeDescriptor: Sendable {
                 return false
             }
             return key.matches(type: types.key) && value.matches(type: types.value)
+        case .set(let element):
+            guard let elementType = ConstExprValue.elementType(ofSetType: type) else {
+                return false
+            }
+            return element.matches(type: elementType)
         case .tuple(let elements):
             let reflected = String(reflecting: type)
             guard elements.count >= 2 else { return false }
@@ -313,6 +334,12 @@ public indirect enum ConstExprStaticTypeDescriptor: Sendable {
             ), arguments.count == 2 else { return false }
             return key.matches(reflectedType: arguments[0])
                 && value.matches(reflectedType: arguments[1])
+        case .set(let element):
+            guard let arguments = genericArguments(
+                in: spelling,
+                constructors: ["Set", "Swift.Set"]
+            ), arguments.count == 1 else { return false }
+            return element.matches(reflectedType: arguments[0])
         case .tuple(let elements):
             let source = spelling.trimmingCharacters(in: .whitespacesAndNewlines)
             guard source.first == "(", source.last == ")" else { return false }
@@ -377,7 +404,7 @@ public indirect enum ConstExprStaticTypeDescriptor: Sendable {
         switch self {
         case .leaf(_, _, let isExistential, _, let predicate):
             return isExistential && predicate == nil
-        case .optional(let wrapped), .array(let wrapped):
+        case .optional(let wrapped), .array(let wrapped), .set(let wrapped):
             return wrapped.needsRuntimeExistentialWitness
         case .dictionary(let key, let value):
             return key.needsRuntimeExistentialWitness

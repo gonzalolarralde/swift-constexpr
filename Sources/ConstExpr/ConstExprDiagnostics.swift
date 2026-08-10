@@ -100,13 +100,23 @@ public struct ConstExprRewriteOptions: Sendable, Equatable {
     /// Maximum recursive expression depth during one rewrite. Values below one
     /// are normalized to one when evaluation begins.
     public var maximumRecursionDepth: Int
+    /// Emits Instruments signposts under the `org.swift.constexpr` subsystem.
+    /// Disabled by default so ordinary evaluation has no logging overhead.
+    public var enableSignposts: Bool
+    /// Active source availability domains. A constrained overload is retained
+    /// for the compiler when no context can prove whether it participates.
+    public var availabilityContext: ConstExprAvailabilityContext?
 
     public init(
         maximumEvaluationSteps: Int = 10_000,
-        maximumRecursionDepth: Int = 256
+        maximumRecursionDepth: Int = 256,
+        enableSignposts: Bool = false,
+        availabilityContext: ConstExprAvailabilityContext? = nil
     ) {
         self.maximumEvaluationSteps = maximumEvaluationSteps
         self.maximumRecursionDepth = maximumRecursionDepth
+        self.enableSignposts = enableSignposts
+        self.availabilityContext = availabilityContext
     }
 
     public static let `default` = Self()

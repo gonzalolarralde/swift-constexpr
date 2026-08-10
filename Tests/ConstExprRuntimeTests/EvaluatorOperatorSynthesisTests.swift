@@ -200,6 +200,54 @@ import Testing
     #expect(result.diagnostics.isEmpty)
 }
 
+@Test func installedStandardOperatorRegistrationsSkipSynthesisPreparation() {
+    let registry = ConstExprRegistry(
+        .infixOperator(
+            "+",
+            left: Int.self,
+            right: Int.self,
+            result: Int.self,
+            precedenceGroup: "AdditionPrecedence",
+            associativity: .left
+        ) { $0 + $1 }
+    )
+    let recorder = ConstExprRegisteredOperatorPreparationProbe.Recorder()
+
+    let result = ConstExprRegisteredOperatorPreparationProbe.$recorder.withValue(recorder) {
+        ConstExprRunner(registry: registry).rewrite(source: "let value = 1 + 2")
+    }
+
+    #expect(result.source == "let value = 3")
+    #expect(result.diagnostics.isEmpty)
+    #expect(recorder.events.isEmpty)
+}
+
+@Test func unknownCustomOperatorStillRunsSynthesisPreparationOncePerKey() {
+    let registry = ConstExprRegistry(
+        .infixOperator(
+            "<+>",
+            left: Int.self,
+            right: Int.self,
+            result: Int.self,
+            precedenceGroup: "AdditionPrecedence",
+            associativity: .left
+        ) { $0 + $1 }
+    )
+    let recorder = ConstExprRegisteredOperatorPreparationProbe.Recorder()
+
+    let result = ConstExprRegisteredOperatorPreparationProbe.$recorder.withValue(recorder) {
+        ConstExprRunner(registry: registry).rewrite(source: "let value = 1 <+> 2")
+    }
+
+    #expect(result.source == "let value = 3")
+    #expect(result.diagnostics.isEmpty)
+    #expect(recorder.events == [
+        .sourceOperatorCollection,
+        .precedenceTableSerializationAndParse,
+        .syntheticDeclarationParse,
+    ])
+}
+
 @Test func evaluatorRejectsOperatorNamesThatFormMoreThanOneDeclaration() {
     let injectedName = "<+>\ninfix operator <*>"
     let registration = ConstExprRegistration.infixOperator(

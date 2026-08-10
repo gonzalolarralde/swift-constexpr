@@ -18,10 +18,18 @@ public struct ConstExprRegistryMacro: ExpressionMacro {
                 )
                 continue
             }
-            pieces.append(piece)
+            pieces.append(
+                "_ConstExprRuntime.registrations(fromGeneratedPeer: \(piece))"
+            )
         }
 
-        let registrations = pieces.isEmpty ? "[]" : pieces.joined(separator: " + ")
+        let registrations: String
+        if pieces.count > ConstExprRegistrationChunkSyntax.limit {
+            registrations = ConstExprRegistrationChunkSyntax
+                .boundedConcatenation(pieces)
+        } else {
+            registrations = pieces.isEmpty ? "[]" : pieces.joined(separator: " + ")
+        }
         return ExprSyntax(
             stringLiteral: "_ConstExprRuntime.Registry(registrations: \(registrations))"
         )
@@ -29,6 +37,20 @@ public struct ConstExprRegistryMacro: ExpressionMacro {
 
     private static func registrationExpression(for expression: ExprSyntax) -> String? {
         let expression = unwrapParentheses(expression)
+
+        // Directly attached member peers for declarations that do not have a
+        // source-level function reference (notably subscripts) can be selected
+        // by calling their generated helper explicitly. The call is consumed
+        // by this macro and becomes the registration-array expression.
+        if let call = expression.as(FunctionCallExprSyntax.self),
+           isGeneratedProviderCall(call.calledExpression)
+        {
+            return call.constExprSource
+        }
+
+        if let property = directPropertyRegistrationExpression(for: expression) {
+            return property
+        }
 
         if let provider = providerReference(for: expression) {
             return "\(provider).registrations"
@@ -49,6 +71,34 @@ public struct ConstExprRegistryMacro: ExpressionMacro {
             return nil
         }
         return "\(helper.path)(\(helper.selector): \(expression.constExprSource))"
+    }
+
+    private static func directPropertyRegistrationExpression(
+        for expression: ExprSyntax
+    ) -> String? {
+        let source = expression.constExprSource
+        guard source.first == "\\",
+              let separator = source.lastIndex(of: ".")
+        else {
+            return nil
+        }
+        let ownerStart = source.index(after: source.startIndex)
+        let owner = source[ownerStart..<separator]
+        let memberStart = source.index(after: separator)
+        let member = source[memberStart...]
+        guard !owner.isEmpty, !member.isEmpty else { return nil }
+        let selector = ConstExprSyntaxSupport.selectorLabel(for: [String]())
+        return "\(owner).\(member)__constExpr(\(selector): \(source))"
+    }
+
+    private static func isGeneratedProviderCall(_ expression: ExprSyntax) -> Bool {
+        if let reference = expression.as(DeclReferenceExprSyntax.self) {
+            return reference.baseName.constExprIdentifier.hasSuffix("__constExpr")
+        }
+        if let member = expression.as(MemberAccessExprSyntax.self) {
+            return member.declName.baseName.constExprIdentifier.hasSuffix("__constExpr")
+        }
+        return false
     }
 
     private struct HelperReference {

@@ -1,11 +1,23 @@
 # Package manifest evaluation
 
-ConstExpr can evaluate a useful declarative subset of `Package.swift`, but it
-does not link or modify SwiftPM's real `PackageDescription` runtime. The example
-uses a side-effect-free facade with the same source names and signatures for the
-operations it supports. That facade is the rewrite-time half of a deliberate
-double implementation: SwiftPM still compiles the rewritten manifest against its
-real module.
+There are now two demonstrations of manifest evaluation:
+
+- `Examples` remains a stock two-package consumer workflow using a small,
+  side-effect-free PackageDescription-shaped facade and staged source rewriting.
+- the sibling local SwiftPM branch `codex/constexpr-manifest-loader` is the
+  alternative fast loader. It conditionally annotates the real current
+  PackageDescription implementation, resolves the global `let package` as a
+  linked value, calls a host-only canonical JSON SPI, and feeds that JSON to the
+  existing `ManifestJSONParser`. Successful evaluation does not compile,
+  sandbox, execute, or rewrite the manifest source.
+
+The SwiftPM path is all-or-nothing. It configures active `#if` regions, requires
+an explicit PackageDescription import and an admissible immutable top level, and
+evaluates in certifying mode with the manifest tools-version availability
+context. Any unknown name, ambiguity, unsupported effect/mutation, syntax issue,
+adapter failure, or unresolved value silently invokes the normal executing loader
+with the original bytes. An experimental developer flag can expose structured
+fallback reasons, and crosscheck mode compares the canonical final manifests.
 
 The design was checked against SwiftPM's
 `Sources/Runtimes/PackageDescription` sources in a local SwiftPM checkout.
@@ -45,6 +57,25 @@ registration owner to be that exact type. Labels, defaults, arguments, and resul
 conversions go through the normal overload resolver. More than one best overload
 means no invocation: the original expression stays for the compiler.
 
+## Real PackageDescription registration
+
+The experiment uses conditional direct annotations such as
+`@ConstExpr(registrationAccess: .package)` on current, non-obsoleted pure
+initializers, factories, values, literal witnesses, resources, traits, language
+standards, and build settings—including extension members. The generated helper
+stays beside the declaration, while an explicit host provider lists selectors and
+contains no handwritten Product/Target/Dependency decoding closures. Package's
+large literal-default initializer uses the macro's linear adapter. Context values
+are the intentional exception: package directory, environment, and Git
+information are injected per load rather than reading PackageDescription's
+process-global command-line model.
+
+Every generated entry records `_PackageDescription` introduced/obsoleted versions
+and `_disfavoredOverload`. The runner receives the manifest tools version and
+falls back when the active overload set cannot be proven. The initial loader
+supports tools version 5.9 and newer; older API eras are measured separately and
+remain executing-loader work until their complete overload sets are registered.
+
 ## Literal values
 
 Registered scalar literal conformers are also expected-type driven. For a custom
@@ -57,9 +88,11 @@ string, integer, floating-point, or Boolean literal target, ConstExpr verifies:
    parameter type.
 
 This keeps literal evaluation inside the explicit registry trust boundary.
-Merely declaring a similarly named initializer is not enough. The conformance and
-initializer must be visible in the annotated primary declaration; an unrelated
-extension is not discovered by the attached macro.
+Merely declaring a similarly named initializer is not enough. A nominal
+annotation can automatically pair only a conformance and witness visible in its
+primary declaration. An extension-only witness can participate when that
+initializer is explicitly annotated with `@ConstExpr`; unrelated, unannotated
+extensions are not discovered.
 
 Array literals recursively pass their element type to each expression. This
 allows `[Target.Dependency]` to contain strings and contextual `.product(...)`

@@ -57,6 +57,12 @@ by an unknown outer declaration or by constraint-solver inference may be unavail
 to a local fold. Compile and test the rewritten source before treating it as a
 build artifact.
 
+Optional, Array, Dictionary, Set, and tuple shapes are intrinsic runtime
+structures, not executable registrations for every specialization. Sugar and
+generic spellings canonicalize recursively, and materialization still requires
+known components plus the language constraints (for example `Hashable` keys and
+set elements). A user-defined `Optional`/`Array` shadow blocks that intrinsic path.
+
 Source declarations are treated as conservative shadows when they are visible:
 an unqualified function declaration blocks a registration of the same name, and a
 source extension member blocks every registered member with the same matching
@@ -68,6 +74,11 @@ operator overloads, that could win at a call site ConstExpr is expected to fold.
 Parser errors are returned without rewriting recovered syntax. Semantic errors
 are different: SwiftSyntax can parse code that Swift's type checker later rejects.
 The runner cannot report all of those errors and is not intended to repair them.
+Hosts that may skip compilation should use certifying terminal evaluation. It
+returns a structured fallback unless every active top-level binding is known and
+the requested value has the expected linked type. Unknown availability domains,
+unsupported statements, ambiguity, and evaluation diagnostics are misses; the
+host should compile the untouched original source and let Swift issue diagnostics.
 
 ## Macro boundary
 
@@ -76,15 +87,15 @@ ordinary value parameters. Async, `rethrows`, and typed `throws(E)` declarations
 `Void`, `Never`, opaque, and function-valued results; ordinary variadics; `inout`,
 ownership-qualified, autoclosure, and closure-valued parameters; mutating or
 consuming methods; effectful accessors; and writable subscripts are outside the
-supported adapter subset. Only explicit members in the annotated primary type
-body are visible. Synthesized members and members in unrelated extensions are
-not discovered. A member whose access is lower than the generated nominal
-provider is not exposed. This also applies to literal conformances: automatic
-custom-literal evaluation requires the conformance and its literal initializer
-to be visible in the annotated primary declaration. A conformance or initializer
-supplied only by an extension remains unresolved, even though the compiled type
-conforms, because executing an unregistered witness would bypass the registry
-trust boundary.
+supported adapter subset. A nominal annotation sees explicit members in its
+primary body. Synthesized members and unrelated extensions are not discovered
+automatically, but an eligible initializer, method, property, or subscript in an
+extension may carry its own annotation. A member whose access is lower than the generated nominal
+provider is not exposed. Automatic scalar-literal evaluation requires both the
+linked conformance and a registered exact literal initializer. A nominal
+annotation discovers a witness in its primary declaration; an eligible extension
+initializer can instead be annotated directly. An unannotated extension witness
+remains unresolved because executing it would bypass the registry trust boundary.
 The narrow variadic exception is an annotated primary declaration that directly
 conforms to `ExpressibleByArrayLiteral` and exposes exactly one eligible
 `init(arrayLiteral:)` witness. Its compiler-checked automatic adapter supports at
@@ -93,12 +104,14 @@ unknown element remain compiler work. `Array` and `Set` use standard unlimited
 adapters through the same registration path; a library author may explicitly opt
 a custom type into an unbounded array-backed
 `ConstExprRegistration.arrayLiteral(..., build:)` adapter.
-Generated callables support at most eight defaulted parameters, individual nominal
-members cannot be annotated separately, and operator functions use manual
+Self-contained literal defaults use a linear adapter and are not capped at eight.
+Nontrivial defaults use native omission branches through eight positions; larger
+cases require a checked manual label-keyed adapter. Operator functions use manual
 registrations.
-Annotated nominals may be nested in nongeneric structs, classes, or enums. Local
-nominals and nominals nested in generic, protocol, actor, or extension contexts
-are rejected.
+Annotated nominals may be nested in nongeneric structs, classes, or enums, or
+directly in a nongeneric, unconstrained extension. Local nominals and nominals
+nested in generic, protocol, actor, or constrained-extension contexts are
+rejected.
 
 Properties require explicit supported value-type annotations. Lazy properties and
 mutating/consuming getters are skipped, and subscript adapters are limited to
@@ -107,11 +120,20 @@ properties, and subscripts on a non-final class must themselves be `final`, beca
 an overridable adapter could dispatch to an implementation that was never
 registered. Initializers and type members still follow the other ordinary filters.
 
-Whole-declaration availability and SPI attributes are copied to the generated
-peer. A nominal member with its own availability or SPI constraint is skipped
-because the shared registration array cannot safely reproduce member-only context;
-member-level availability produces a warning. A member with global-actor isolation
-is also skipped with a warning.
+Generated registrations record introduced/deprecated/obsoleted availability and
+`_disfavoredOverload`, including eligible members collected by a nominal provider.
+A certifying runner requires a matching availability context before it can use a
+constrained overload set. Deprecated registrations
+remain compiler work so their warnings are not erased. Package-scoped peers erase
+their registration-array type so an internal ConstExpr import and generated
+provider do not leak into the public interface. Whole-nominal providers silently
+omit unconditionally unavailable members and deprecated members that cannot be
+invoked warning-free. An eligible deprecated static stored `let` on a struct or
+enum can instead use a copied, contextually typed `.init(...)` expression made
+only from recursively self-contained constants. Its availability cutoff is still
+enforced. Class owners are excluded because reconstructing a stored singleton
+could change identity or lazy-once semantics. Unsafe SPI and global-actor contexts
+remain excluded when their access or isolation cannot be reproduced.
 
 The macro also cannot semantically resolve arbitrary custom attributes. It keeps
 a small allowlist of attributes whose effects are safe for generated peers;
@@ -137,10 +159,10 @@ for the same reason. Locally handled `try?` and `try!` calls remain eligible.
 A redundant `try`, `try?`, or `try!` around a nonthrowing fold remains in source
 so Swift's diagnostic is preserved.
 
-For those direct nominal members, `Self` and owner-local type names are qualified
-in the peer, and absent default arguments remain absent when the adapter calls the
-original declaration. This lets Swift evaluate member-dependent defaults in their
-original lexical context. Caller-location defaults are still rejected because the
+For generated members, `Self` and owner-local type names are qualified in the
+peer. Nontrivial absent defaults remain absent when the adapter calls the original
+declaration; self-contained literal defaults may be copied and passed explicitly.
+Caller-location defaults are still rejected because the
 rewriter is a different call site. Implicitly-unwrapped optional types and
 global-actor-isolated declarations are also explicitly unsupported. Parameterized
 existentials such as `any Collection<Int>` are rejected on the package's macOS 11
