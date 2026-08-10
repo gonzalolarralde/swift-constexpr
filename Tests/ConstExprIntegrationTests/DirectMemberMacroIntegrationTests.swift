@@ -25,11 +25,18 @@ public struct DirectMemberFixture {
     }
 }
 
+@ConstExprMembers(registrationAccess: .package)
 extension DirectMemberFixture {
-    @ConstExpr(registrationAccess: .package)
     public static func make(_ value: Int) -> DirectMemberFixture {
         DirectMemberFixture(value: value)
     }
+
+    @ConstExprIgnored
+    public static func processDependentValue() -> Int {
+        fatalError("must remain compiler work")
+    }
+
+    public static func genericIdentity<T>(_ value: T) -> T { value }
 }
 
 public enum DirectMemberOuterFixture {}

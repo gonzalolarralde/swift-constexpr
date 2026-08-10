@@ -15,9 +15,11 @@ The package has four layers:
    containing registrations for sufficiently visible explicit initializers,
    nonmutating/nonconsuming methods, explicitly typed properties with ordinary
    getters, enum cases, and read-only instance subscripts in its primary body.
-   Eligible members can also be annotated directly in a type or extension;
-   package-scoped peers erase their public signature to keep implementation
-   dependencies out of a library's public interface.
+   `@ConstExprMembers` applies the same eligible-member collection to an
+   extension, while `@ConstExprIgnored` removes an otherwise eligible member.
+   Direct member annotations remain available when strict diagnostics are more
+   useful. Package-scoped peers erase their public signature to keep
+   implementation dependencies out of a library's public interface.
 2. `#constExprRegistry(...)` turns explicit declaration references into one
    immutable `ConstExprRegistry` value. Function casts select overloads.
 3. `ConstExprRunner` parses a complete source file, folds Swift operator
@@ -314,8 +316,9 @@ consuming methods; lazy properties and mutating, consuming, or effectful getters
 static, writable, or effectful subscripts; unsafe SPI/isolation contexts;
 dynamic members; overridable instance methods, properties, and subscripts on a
 non-final class; implicitly-unwrapped optional types; global-actor isolation;
-compiler-synthesized members; and members from unrelated extensions unless they
-are annotated directly. A `final` member on a non-final class is eligible.
+compiler-synthesized members; and members from unrelated extensions unless the
+extension is annotated with `@ConstExprMembers` or a member is annotated
+directly. A `final` member on a non-final class is eligible.
 Self-contained literal defaults have no eight-parameter cap; nontrivial copied
 defaults retain the bounded omission path. Availability is recorded on generated
 registrations and filtered by an explicit resolution context. Whole-nominal
@@ -324,8 +327,9 @@ cannot be invoked warning-free. A static stored `let` on a value type may copy a
 recursively self-contained initializer into a contextually typed adapter; class
 owners are excluded because reconstructing a singleton could change identity.
 The adapter is unavailable at and after its recorded deprecation boundary.
-Unsupported semantic attributes receive macro diagnostics rather than being
-guessed. A nested annotated nominal is supported in a nongeneric struct, class,
+Unsupported semantic attributes receive diagnostics for direct annotations and
+are silently omitted by bulk annotations. A nested annotated nominal is
+supported in a nongeneric struct, class,
 or enum, or directly in a nongeneric, unconstrained extension; local,
 generic-context, protocol, actor, and constrained-extension nesting is not.
 Other unsupported declarations are left out of the generated provider.

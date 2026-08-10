@@ -59,16 +59,18 @@ means no invocation: the original expression stays for the compiler.
 
 ## Real PackageDescription registration
 
-The experiment uses conditional direct annotations such as
-`@ConstExpr(registrationAccess: .package)` on current, non-obsoleted pure
-initializers, factories, values, literal witnesses, resources, traits, language
-standards, and build settings—including extension members. The generated helper
-stays beside the declaration, while an explicit host provider lists selectors and
-contains no handwritten Product/Target/Dependency decoding closures. Package's
-large literal-default initializer uses the macro's linear adapter. Context values
-are the intentional exception: package directory, environment, and Git
-information are injected per load rather than reading PackageDescription's
-process-global command-line model.
+The experiment conditionally annotates whole PackageDescription types with
+`@ConstExpr(registrationAccess: .package)` and extensions with
+`@ConstExprMembers(registrationAccess: .package)`. Each scope automatically
+registers every eligible immediate declaration; unsupported members are omitted,
+and `@ConstExprIgnored` excludes an otherwise eligible declaration whose body is
+not safe for speculative execution. Direct annotations remain only for isolated
+leaf declarations. The generated helpers stay beside their declarations, while
+an explicit host provider contains no handwritten Product/Target/Dependency
+decoding closures. Package's large literal-default initializer uses the macro's
+linear adapter. Context values are the intentional exception: package directory,
+environment, and Git information are injected per load rather than reading
+PackageDescription's process-global command-line model.
 
 Every generated entry records `_PackageDescription` introduced/obsoleted versions
 and `_disfavoredOverload`. The runner receives the manifest tools version and

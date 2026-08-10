@@ -22,11 +22,7 @@ private let defaultAdapterLinkedModules = [
 @Test func compilerOmitsUnusableDefaultAdapterAndRegistryNeverInvokesIt() throws {
     let result = try compileAndRunDefaultAdapterFixture()
     #expect(result.compilerStatus == 0, Comment(rawValue: result.compilerError))
-    #expect(
-        result.compilerError.contains(
-            "provide a manual label-keyed ConstExprRegistration adapter"
-        )
-    )
+    #expect(!result.compilerError.contains("ConstExprRegistration adapter"))
     #expect(result.programStatus == 0, Comment(rawValue: result.programError))
 }
 

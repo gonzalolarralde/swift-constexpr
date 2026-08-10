@@ -91,14 +91,6 @@ extension ConstExprMacroTests {
                 init(arrayLiteral elements: Int...) {}
             }
             """,
-            diagnostics: [
-                DiagnosticSpec(
-                    message: "ExpressibleByArrayLiteral conformance was not registered because its init(arrayLiteral:) witness is not visible in the annotated primary declaration",
-                    line: 1,
-                    column: 1,
-                    severity: .warning
-                )
-            ],
             macros: macros
         )
 
@@ -124,14 +116,6 @@ extension ConstExprMacroTests {
                 }
             }
             """,
-            diagnostics: [
-                DiagnosticSpec(
-                    message: "ExpressibleByArrayLiteral conformance was not registered because multiple eligible init(arrayLiteral:) witnesses are visible",
-                    line: 1,
-                    column: 1,
-                    severity: .warning
-                )
-            ],
             macros: macros
         )
     }

@@ -89,9 +89,12 @@ ownership-qualified, autoclosure, and closure-valued parameters; mutating or
 consuming methods; effectful accessors; and writable subscripts are outside the
 supported adapter subset. A nominal annotation sees explicit members in its
 primary body. Synthesized members and unrelated extensions are not discovered
-automatically, but an eligible initializer, method, property, or subscript in an
-extension may carry its own annotation. A member whose access is lower than the generated nominal
-provider is not exposed. Automatic scalar-literal evaluation requires both the
+automatically. Annotating an extension with `@ConstExprMembers` collects all of
+its eligible immediate members, while a direct annotation can still opt in one
+declaration with strict diagnostics. `@ConstExprIgnored` is the explicit safety
+escape hatch for a declaration that bulk collection would otherwise accept. A
+member whose access is lower than the generated nominal provider is not exposed.
+Automatic scalar-literal evaluation requires both the
 linked conformance and a registered exact literal initializer. A nominal
 annotation discovers a witness in its primary declaration; an eligible extension
 initializer can instead be annotated directly. An unannotated extension witness
@@ -111,7 +114,7 @@ registrations.
 Annotated nominals may be nested in nongeneric structs, classes, or enums, or
 directly in a nongeneric, unconstrained extension. Local nominals and nominals
 nested in generic, protocol, actor, or constrained-extension contexts are
-rejected.
+unsupported. A generic nominal bulk annotation produces no provider.
 
 Properties require explicit supported value-type annotations. Lazy properties and
 mutating/consuming getters are skipped, and subscript adapters are limited to
@@ -138,7 +141,7 @@ remain excluded when their access or isolation cannot be reproduced.
 The macro also cannot semantically resolve arbitrary custom attributes. It keeps
 a small allowlist of attributes whose effects are safe for generated peers;
 other attributes reject a directly annotated declaration or cause an affected
-nominal member to be skipped with a warning. A manual registration is the escape
+bulk member to be omitted silently. A manual registration is the escape
 hatch when the attribute's isolation and transformation behavior is known.
 
 Macro-generated source qualifies runtime support through `_ConstExprRuntime`.

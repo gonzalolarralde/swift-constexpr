@@ -68,9 +68,16 @@ private func emitPackageAccessInterface() throws -> (Int32, String, String) {
 
     public struct CleanExtensionAPI {}
 
+    @ConstExprMembers(registrationAccess: .package)
     public extension CleanExtensionAPI {
-        @ConstExpr(registrationAccess: .package)
         static func make(_ value: Int) -> Self { Self() }
+
+        @ConstExprIgnored
+        static func processDependentValue() -> Int {
+            fatalError("must remain compiler work")
+        }
+
+        static func genericIdentity<T>(_ value: T) -> T { value }
     }
 
     extension CleanNamespace {

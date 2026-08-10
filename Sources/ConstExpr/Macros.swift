@@ -25,6 +25,24 @@ public macro ConstExpr(
 ) =
     #externalMacro(module: "ConstExprMacros", type: "ConstExprMacro")
 
+/// Generates registration peers for every eligible immediate member of an
+/// extension. Unsupported members are omitted silently; use
+/// ``ConstExprIgnored`` to exclude an otherwise eligible declaration.
+@attached(member, names: arbitrary)
+public macro ConstExprMembers(
+    registrationAccess: ConstExprRegistrationAccess = .declaration
+) =
+    #externalMacro(module: "ConstExprMacros", type: "ConstExprMembersMacro")
+
+/// Excludes a declaration from an enclosing bulk ``ConstExpr`` annotation.
+///
+/// This is useful for declarations that are syntactically adaptable but are
+/// effectful, process-dependent, trapping, or otherwise unsafe to execute
+/// during constant evaluation.
+@attached(peer, names: arbitrary)
+public macro ConstExprIgnored() =
+    #externalMacro(module: "ConstExprMacros", type: "ConstExprIgnoredMacro")
+
 /// Builds a registry from declarations annotated with ``ConstExpr``.
 ///
 /// Function overloads can be selected with an explicit cast, for example:

@@ -8,6 +8,20 @@ struct ConstExprDirectMemberContext {
     let inheritedDeclarationAccess: ConstExprAccessLevel?
     let requiresFinalInstanceMembers: Bool
 
+    init(extensionDecl: ExtensionDeclSyntax) {
+        self.ownerReference = extensionDecl.extendedType.constExprSource
+        // An extension without an explicit access modifier does not cap an
+        // explicitly public/package member. It only supplies a default access
+        // when it spells one (`public extension`, for example).
+        self.enclosingAccess = nil
+        self.inheritedDeclarationAccess =
+            extensionDecl.modifiers.constExprExplicitAccessLevel
+        // Syntax alone cannot establish whether an arbitrary extended owner is
+        // a value type or a final class. Static members remain eligible; an
+        // instance member must be explicitly final to be selected safely.
+        self.requiresFinalInstanceMembers = true
+    }
+
     init?(
         lexicalContext: [Syntax],
         declaration: some DeclSyntaxProtocol

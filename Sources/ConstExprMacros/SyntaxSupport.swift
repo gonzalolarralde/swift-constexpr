@@ -90,6 +90,14 @@ extension DeclModifierListSyntax {
 }
 
 extension AttributeListSyntax {
+    func constExprContainsAttribute(named requestedName: String) -> Bool {
+        let visitor = ConstExprAttributePresenceVisitor(
+            requestedName: requestedName
+        )
+        visitor.walk(self)
+        return visitor.found
+    }
+
     var constExprPreservedPeerAttributes: String {
         compactMap { element -> String? in
             guard let attribute = element.as(AttributeSyntax.self) else { return nil }
@@ -131,6 +139,7 @@ extension AttributeListSyntax {
     var constExprUnsupportedSemanticAttributeName: String? {
         let safeNames: Set<String> = [
             "ConstExpr",
+            "ConstExprIgnored",
             "available",
             "_spi",
             "discardableResult",
@@ -153,6 +162,40 @@ extension AttributeListSyntax {
             }
         }
         return nil
+    }
+}
+
+private final class ConstExprAttributePresenceVisitor: SyntaxVisitor {
+    let requestedName: String
+    var found = false
+
+    init(requestedName: String) {
+        self.requestedName = requestedName
+        super.init(viewMode: .sourceAccurate)
+    }
+
+    override func visit(_ node: AttributeSyntax) -> SyntaxVisitorContinueKind {
+        let source = node.attributeName.constExprSource
+        if source == requestedName
+            || source.split(separator: ".").last.map(String.init) == requestedName
+        {
+            found = true
+        }
+        return .skipChildren
+    }
+}
+
+extension DeclSyntax {
+    var constExprAttributes: AttributeListSyntax {
+        if let declaration = `as`(FunctionDeclSyntax.self) { return declaration.attributes }
+        if let declaration = `as`(VariableDeclSyntax.self) { return declaration.attributes }
+        if let declaration = `as`(InitializerDeclSyntax.self) { return declaration.attributes }
+        if let declaration = `as`(SubscriptDeclSyntax.self) { return declaration.attributes }
+        if let declaration = `as`(StructDeclSyntax.self) { return declaration.attributes }
+        if let declaration = `as`(ClassDeclSyntax.self) { return declaration.attributes }
+        if let declaration = `as`(EnumDeclSyntax.self) { return declaration.attributes }
+        if let declaration = `as`(EnumCaseDeclSyntax.self) { return declaration.attributes }
+        return []
     }
 }
 

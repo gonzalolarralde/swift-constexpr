@@ -132,13 +132,6 @@ extension ConstExprMacroTests {
                 let value: Value
             }
             """,
-            diagnostics: [
-                DiagnosticSpec(
-                    message: "generic nominal types are not supported by @ConstExpr",
-                    line: 1,
-                    column: 1
-                )
-            ],
             macros: macros
         )
     }
@@ -196,8 +189,8 @@ extension ConstExprMacroTests {
 
     func assertFilteredMember(
         declaration: String,
-        message: String,
-        column: Int = 5
+        message _: String,
+        column _: Int = 5
     ) {
         let source = """
         @ConstExpr
@@ -221,21 +214,13 @@ extension ConstExprMacroTests {
         assertMacroExpansion(
             source,
             expandedSource: expanded,
-            diagnostics: [
-                DiagnosticSpec(
-                    message: message,
-                    line: 3,
-                    column: column,
-                    severity: .warning
-                )
-            ],
             macros: macros
         )
     }
 
     func assertFilteredClassMember(
         declaration: String,
-        message: String,
+        message _: String,
         isFinalClass: Bool = false
     ) {
         let classModifier = isFinalClass ? "final " : ""
@@ -261,21 +246,13 @@ extension ConstExprMacroTests {
         assertMacroExpansion(
             source,
             expandedSource: expanded,
-            diagnostics: [
-                DiagnosticSpec(
-                    message: message,
-                    line: 3,
-                    column: 5,
-                    severity: .warning
-                )
-            ],
             macros: macros
         )
     }
 
     func assertFilteredArrayLiteralWitness(
         declaration: String,
-        message: String
+        message _: String
     ) {
         let source = """
         @ConstExpr
@@ -299,14 +276,6 @@ extension ConstExprMacroTests {
         assertMacroExpansion(
             source,
             expandedSource: expanded,
-            diagnostics: [
-                DiagnosticSpec(
-                    message: message,
-                    line: 3,
-                    column: 5,
-                    severity: .warning
-                )
-            ],
             macros: macros
         )
     }

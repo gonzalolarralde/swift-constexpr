@@ -3,12 +3,21 @@ import SwiftSyntax
 import SwiftSyntaxMacros
 
 enum ConstExprMacroDiagnostic {
+    @TaskLocal private static var diagnosticsAreSuppressed = false
+
+    static func suppressing<Result>(
+        _ operation: () throws -> Result
+    ) rethrows -> Result {
+        try $diagnosticsAreSuppressed.withValue(true, operation: operation)
+    }
+
     static func error(
         _ message: String,
         id: String,
         at node: some SyntaxProtocol,
         in context: some MacroExpansionContext
     ) {
+        guard !diagnosticsAreSuppressed else { return }
         context.diagnose(
             Diagnostic(
                 node: Syntax(node),
@@ -23,6 +32,7 @@ enum ConstExprMacroDiagnostic {
         at node: some SyntaxProtocol,
         in context: some MacroExpansionContext
     ) {
+        guard !diagnosticsAreSuppressed else { return }
         context.diagnose(
             Diagnostic(
                 node: Syntax(node),

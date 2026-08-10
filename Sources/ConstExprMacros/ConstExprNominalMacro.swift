@@ -71,6 +71,11 @@ extension ConstExprMacro {
         }
 
         for item in members {
+            if item.decl.constExprAttributes
+                .constExprContainsAttribute(named: "ConstExprIgnored")
+            {
+                continue
+            }
             if let initializer = item.decl.as(InitializerDeclSyntax.self) {
                 if shouldSkipWholeNominalMember(initializer.attributes) { continue }
                 // Array-literal witnesses have variadic source semantics and

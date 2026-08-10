@@ -9,8 +9,53 @@ import XCTest
 final class ConstExprGeneratedChunkExpansionTests: XCTestCase {
     private let macros: [String: Macro.Type] = [
         "ConstExpr": ConstExprMacro.self,
+        "ConstExprMembers": ConstExprMembersMacro.self,
+        "ConstExprIgnored": ConstExprIgnoredMacro.self,
         "constExprRegistry": ConstExprRegistryMacro.self,
     ]
+
+    func testExtensionBulkExpansionRegistersEligibleMembersSilently() {
+        let expanded = expand("""
+        public struct BulkAPI {}
+
+        @ConstExprMembers(registrationAccess: .package)
+        extension BulkAPI {
+            public static func make(_ value: Int) -> Int { value }
+
+            #if CONSTEXPR_ENABLED
+            @ConstExprIgnored
+            #endif
+            static func processValue(_ value: Int) -> Int { value }
+
+            static func generic<T>(_ value: T) -> T { value }
+        }
+        """)
+
+        XCTAssertTrue(expanded.contains("static func make__constExpr"), expanded)
+        XCTAssertTrue(expanded.contains("package static func make__constExpr"), expanded)
+        XCTAssertFalse(expanded.contains("processValue__constExpr"), expanded)
+        XCTAssertFalse(expanded.contains("generic__constExpr"), expanded)
+    }
+
+    func testNominalBulkExpansionHonorsIgnoredAndSkipsUnsupportedMembers() {
+        let expanded = expand("""
+        @ConstExpr
+        struct BulkValue {
+            static func make(_ value: Int) -> Int { value }
+
+            #if CONSTEXPR_ENABLED
+            @ConstExprIgnored
+            #endif
+            static func processValue(_ value: Int) -> Int { value }
+
+            static func generic<T>(_ value: T) -> T { value }
+        }
+        """)
+
+        XCTAssertTrue(expanded.contains("name: \"make\""), expanded)
+        XCTAssertFalse(expanded.contains("name: \"processValue\""), expanded)
+        XCTAssertFalse(expanded.contains("name: \"generic\""), expanded)
+    }
 
     func testLargeNominalExpansionUsesStableProviderChunks() {
         let members = (0..<65).map {

@@ -50,14 +50,6 @@ extension ConstExprMacroTests {
                 }
             }
             """,
-            diagnostics: [
-                DiagnosticSpec(
-                    message: "initializer was not registered because its 9 default arguments include a non-literal expression and exceed the automatic omission limit of eight; provide a manual label-keyed ConstExprRegistration adapter",
-                    line: 7,
-                    column: 5,
-                    severity: .warning
-                )
-            ],
             macros: macros
         )
     }

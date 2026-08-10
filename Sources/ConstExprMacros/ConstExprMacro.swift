@@ -109,58 +109,64 @@ public struct ConstExprMacro: PeerMacro {
             guard validateNominalContext(attribute: attribute, in: context),
                   rejectGlobalActor(structure.attributes, at: attribute, in: context) == false
             else { return [] }
-            return expand(
-                nominalName: structure.name.constExprIdentifier,
-                nominalReference: structure.name.constExprIdentifierReference,
-                attributes: structure.attributes,
-                modifiers: structure.modifiers,
-                inheritanceClause: structure.inheritanceClause,
-                members: structure.memberBlock.members,
-                isGeneric: structure.genericParameterClause != nil || structure.genericWhereClause != nil,
-                requiresFinalInstanceMembers: false,
-                allowsCopiedDeprecatedStoredInitializers: true,
-                registrationAccess: registrationAccess,
-                attribute: attribute,
-                in: context
-            )
+            return ConstExprMacroDiagnostic.suppressing {
+                expand(
+                    nominalName: structure.name.constExprIdentifier,
+                    nominalReference: structure.name.constExprIdentifierReference,
+                    attributes: structure.attributes,
+                    modifiers: structure.modifiers,
+                    inheritanceClause: structure.inheritanceClause,
+                    members: structure.memberBlock.members,
+                    isGeneric: structure.genericParameterClause != nil || structure.genericWhereClause != nil,
+                    requiresFinalInstanceMembers: false,
+                    allowsCopiedDeprecatedStoredInitializers: true,
+                    registrationAccess: registrationAccess,
+                    attribute: attribute,
+                    in: context
+                )
+            }
         }
         if let classDecl = declaration.as(ClassDeclSyntax.self) {
             guard validateNominalContext(attribute: attribute, in: context),
                   rejectGlobalActor(classDecl.attributes, at: attribute, in: context) == false
             else { return [] }
-            return expand(
-                nominalName: classDecl.name.constExprIdentifier,
-                nominalReference: classDecl.name.constExprIdentifierReference,
-                attributes: classDecl.attributes,
-                modifiers: classDecl.modifiers,
-                inheritanceClause: classDecl.inheritanceClause,
-                members: classDecl.memberBlock.members,
-                isGeneric: classDecl.genericParameterClause != nil || classDecl.genericWhereClause != nil,
-                requiresFinalInstanceMembers: !classDecl.modifiers.constExprContains(.final),
-                allowsCopiedDeprecatedStoredInitializers: false,
-                registrationAccess: registrationAccess,
-                attribute: attribute,
-                in: context
-            )
+            return ConstExprMacroDiagnostic.suppressing {
+                expand(
+                    nominalName: classDecl.name.constExprIdentifier,
+                    nominalReference: classDecl.name.constExprIdentifierReference,
+                    attributes: classDecl.attributes,
+                    modifiers: classDecl.modifiers,
+                    inheritanceClause: classDecl.inheritanceClause,
+                    members: classDecl.memberBlock.members,
+                    isGeneric: classDecl.genericParameterClause != nil || classDecl.genericWhereClause != nil,
+                    requiresFinalInstanceMembers: !classDecl.modifiers.constExprContains(.final),
+                    allowsCopiedDeprecatedStoredInitializers: false,
+                    registrationAccess: registrationAccess,
+                    attribute: attribute,
+                    in: context
+                )
+            }
         }
         if let enumDecl = declaration.as(EnumDeclSyntax.self) {
             guard validateNominalContext(attribute: attribute, in: context),
                   rejectGlobalActor(enumDecl.attributes, at: attribute, in: context) == false
             else { return [] }
-            return expand(
-                nominalName: enumDecl.name.constExprIdentifier,
-                nominalReference: enumDecl.name.constExprIdentifierReference,
-                attributes: enumDecl.attributes,
-                modifiers: enumDecl.modifiers,
-                inheritanceClause: enumDecl.inheritanceClause,
-                members: enumDecl.memberBlock.members,
-                isGeneric: enumDecl.genericParameterClause != nil || enumDecl.genericWhereClause != nil,
-                requiresFinalInstanceMembers: false,
-                allowsCopiedDeprecatedStoredInitializers: true,
-                registrationAccess: registrationAccess,
-                attribute: attribute,
-                in: context
-            )
+            return ConstExprMacroDiagnostic.suppressing {
+                expand(
+                    nominalName: enumDecl.name.constExprIdentifier,
+                    nominalReference: enumDecl.name.constExprIdentifierReference,
+                    attributes: enumDecl.attributes,
+                    modifiers: enumDecl.modifiers,
+                    inheritanceClause: enumDecl.inheritanceClause,
+                    members: enumDecl.memberBlock.members,
+                    isGeneric: enumDecl.genericParameterClause != nil || enumDecl.genericWhereClause != nil,
+                    requiresFinalInstanceMembers: false,
+                    allowsCopiedDeprecatedStoredInitializers: true,
+                    registrationAccess: registrationAccess,
+                    attribute: attribute,
+                    in: context
+                )
+            }
         }
 
         ConstExprMacroDiagnostic.error(

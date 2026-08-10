@@ -6,6 +6,8 @@ import XCTest
 final class ConstExprMacroTests: XCTestCase {
     let macros: [String: Macro.Type] = [
         "ConstExpr": ConstExprMacro.self,
+        "ConstExprMembers": ConstExprMembersMacro.self,
+        "ConstExprIgnored": ConstExprIgnoredMacro.self,
         "constExprRegistry": ConstExprRegistryMacro.self,
     ]
 

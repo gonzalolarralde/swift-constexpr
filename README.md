@@ -175,6 +175,7 @@ The generated adapters currently cover:
 | Free function | A synchronous, nongeneric function with supported value parameters and either no throwing effect or ordinary untyped `throws` |
 | Global `let` | One file-scope immutable identifier binding |
 | Direct initializer, method, property, or subscript | A peer beside an eligible declaration in a primary type or extension |
+| Extension with `@ConstExprMembers` | Peers for every eligible immediate member; unsupported members are omitted silently |
 | `struct`, `class` | Explicit accessible initializers, nonmutating/nonconsuming methods, static/instance nonlazy properties with explicit supported value types and ordinary getters, read-only instance subscripts, and a directly declared array-literal witness |
 | `enum` | The same members plus cases with or without associated values |
 
@@ -182,7 +183,12 @@ Private stored state does not need to be registered. A public method can use it
 normally when the generated adapter invokes the compiled method. A member whose
 access is lower than the annotated nominal's generated provider is not exposed as
 a registration. An unrelated extension is not discovered automatically by a
-nominal annotation, but its eligible members can now be annotated directly.
+nominal annotation. Annotate that extension once with `@ConstExprMembers` to
+register all of its eligible immediate members, or annotate a declaration
+directly when strict diagnostics are useful. Bulk annotations intentionally
+omit unsupported members without warnings. `@ConstExprIgnored` excludes a
+syntactically eligible declaration whose implementation is not safe for
+constant evaluation.
 Compiler-synthesized initializers remain invisible. On a
 non-final class, instance methods, properties, and subscripts must themselves be
 `final`; `dynamic` members are always skipped because dispatch could select an
@@ -209,7 +215,7 @@ the generated provider appears in the module's public interface.
 Because a syntax macro cannot resolve whether an arbitrary attribute is a custom
 global actor or a declaration-transforming macro, declaration attributes use a
 small allowlist. An unsupported semantic attribute rejects a directly annotated
-declaration; an affected nominal member is omitted with a warning. Use a manual
+declaration; an affected bulk member is omitted silently. Use a manual
 registration when the attribute's behavior is known to be safe.
 
 Generated peers deliberately qualify support types through `_ConstExprRuntime` so
@@ -537,15 +543,18 @@ results; `inout`, ownership-qualified, ordinary variadic, autoclosure, and closu
 parameters; mutating or consuming methods; mutation/data-flow analysis; and
 compiler-complete overload resolution. Generated nominal providers inspect
 explicit declarations in the primary type body; synthesized members, unrelated
-extensions, and private callable members are not automatically registered. An
-eligible declaration in an extension can instead carry its own `@ConstExpr`.
+extensions, and private callable members are not automatically registered.
+Annotate an extension with `@ConstExprMembers` to collect every eligible
+immediate member, use `@ConstExprIgnored` for an explicit opt-out, or annotate a
+single declaration directly when strict diagnostics are useful.
 The narrow variadic exception is a directly declared `ExpressibleByArrayLiteral`
 witness, whose generated adapter is limited to 32 elements unless an explicit
 array-backed adapter is registered.
 An annotated nominal may be nested in a nongeneric struct, class, or enum, or
 directly in a nongeneric, unconstrained extension. It is then selected with its
 qualified type spelling. Local nominals and nominals nested in generic, protocol,
-actor, or constrained-extension contexts are unsupported.
+actor, or constrained-extension contexts are unsupported. A generic nominal bulk
+annotation is ignored without producing a provider.
 
 Generated member adapters owner-qualify `Self` and owner-local type names.
 Recursively self-contained defaults (`nil`, literals, arrays, dictionaries, and
