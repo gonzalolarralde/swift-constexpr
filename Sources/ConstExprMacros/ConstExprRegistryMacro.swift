@@ -7,6 +7,9 @@ public struct ConstExprRegistryMacro: ExpressionMacro {
         of macro: some FreestandingMacroExpansionSyntax,
         in context: some MacroExpansionContext
     ) throws -> ExprSyntax {
+        if macro.arguments.first?.label?.constExprIdentifier == "for" {
+            return typedRegistryExpansion(of: macro, in: context)
+        }
         var pieces: [String] = []
         for argument in macro.arguments {
             guard let piece = registrationExpression(for: argument.expression) else {
@@ -33,6 +36,84 @@ public struct ConstExprRegistryMacro: ExpressionMacro {
         return ExprSyntax(
             stringLiteral: "_ConstExprRuntime.Registry(registrations: \(registrations))"
         )
+    }
+
+    private static func typedRegistryExpansion(
+        of macro: some FreestandingMacroExpansionSyntax,
+        in context: some MacroExpansionContext
+    ) -> ExprSyntax {
+        guard let rootArgument = macro.arguments.first,
+              let root = metatypeBase(rootArgument.expression),
+              let rootProvider = providerReference(for: rootArgument.expression)
+        else {
+            ConstExprMacroDiagnostic.error(
+                "for: must name an @ConstExpr nominal type",
+                id: "invalid-registry-root",
+                at: macro,
+                in: context
+            )
+            return ExprSyntax(
+                stringLiteral: "_ConstExprRuntime.Registry(registrations: [])"
+            )
+        }
+
+        var pieces = [
+            "_ConstExprRuntime.registrations(for: \(root).self, from: \(rootProvider).self)"
+        ]
+        if let extensionsArgument = macro.arguments.first(where: {
+            $0.label?.constExprIdentifier == "extensions"
+        }) {
+            guard let array = extensionsArgument.expression.as(ArrayExprSyntax.self) else {
+                ConstExprMacroDiagnostic.error(
+                    "extensions: must be an array of named extension provider types",
+                    id: "invalid-registry-extensions",
+                    at: extensionsArgument.expression,
+                    in: context
+                )
+                return ExprSyntax(
+                    stringLiteral: "_ConstExprRuntime.Registry(registrations: [])"
+                )
+            }
+            for element in array.elements {
+                guard let name = extensionProviderName(element.expression) else {
+                    ConstExprMacroDiagnostic.error(
+                        "extension entries must be non-interpolated identifier strings such as \"Networking\"",
+                        id: "invalid-registry-extension",
+                        at: element.expression,
+                        in: context
+                    )
+                    continue
+                }
+                pieces.append(
+                    "_ConstExprRuntime.registrations(fromGeneratedPeer: \(root).__constExprRegistration_\(name)(\(rootProvider).self))"
+                )
+            }
+        }
+
+        let registrations = pieces.count > ConstExprRegistrationChunkSyntax.limit
+            ? ConstExprRegistrationChunkSyntax.boundedConcatenation(pieces)
+            : pieces.joined(separator: " + ")
+        return ExprSyntax(
+            stringLiteral: "_ConstExprRuntime.Registry(registrations: \(registrations))"
+        )
+    }
+
+    private static func metatypeBase(_ expression: ExprSyntax) -> String? {
+        let expression = unwrapParentheses(expression)
+        guard let metatype = expression.as(MemberAccessExprSyntax.self),
+              metatype.declName.baseName.tokenKind == .keyword(.`self`),
+              let base = metatype.base
+        else { return nil }
+        return base.constExprSource
+    }
+
+    private static func extensionProviderName(_ expression: ExprSyntax) -> String? {
+        guard let literal = expression.as(StringLiteralExprSyntax.self),
+              literal.segments.count == 1,
+              let segment = literal.segments.first?.as(StringSegmentSyntax.self)
+        else { return nil }
+        let name = segment.content.text
+        return ConstExprMacro.isSimpleIdentifier(name) ? name : nil
     }
 
     private static func registrationExpression(for expression: ExprSyntax) -> String? {

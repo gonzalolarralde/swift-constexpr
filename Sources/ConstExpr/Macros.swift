@@ -34,6 +34,16 @@ public macro ConstExprMembers(
 ) =
     #externalMacro(module: "ConstExprMacros", type: "ConstExprMembersMacro")
 
+/// Generates one named registry fragment for all eligible immediate members
+/// of an extension. The extended nominal must carry the primary ``ConstExpr``
+/// annotation.
+@attached(member, names: arbitrary)
+public macro ConstExprMembers(
+    named: String,
+    registrationAccess: ConstExprRegistrationAccess = .declaration
+) =
+    #externalMacro(module: "ConstExprMacros", type: "ConstExprMembersMacro")
+
 /// Excludes a declaration from an enclosing bulk ``ConstExpr`` annotation.
 ///
 /// This is useful for declarations that are syntactically adaptable but are
@@ -52,4 +62,17 @@ public macro ConstExprIgnored() =
 /// ```
 @freestanding(expression)
 public macro constExprRegistry(_ declarations: Any...) -> ConstExprRegistry =
+    #externalMacro(module: "ConstExprMacros", type: "ConstExprRegistryMacro")
+
+/// Builds a registry from a nominal's primary provider and selected named
+/// extension fragments.
+///
+/// ```swift
+/// #constExprRegistry(for: Client.self, extensions: ["Networking"])
+/// ```
+@freestanding(expression)
+public macro constExprRegistry<Root>(
+    for root: Root.Type,
+    extensions: [String] = []
+) -> ConstExprRegistry =
     #externalMacro(module: "ConstExprMacros", type: "ConstExprRegistryMacro")

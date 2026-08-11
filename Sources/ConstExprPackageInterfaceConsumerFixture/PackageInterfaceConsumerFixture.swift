@@ -1,10 +1,14 @@
 import ConstExpr
 import ConstExprPackageInterfaceFixture
 
-private let packageInterfaceRegistry = #constExprRegistry(
-    PackageInterfaceFixture.init(value:),
-    PackageInterfaceNamespace.NestedVersion.self
+private let packageInterfaceRootRegistry = #constExprRegistry(
+    for: PackageInterfaceFixture.self,
+    extensions: ["Factories"]
 )
+
+private let packageInterfaceRegistry = #constExprRegistry(
+    PackageInterfaceNamespace.NestedVersion.self
+).appending(contentsOf: packageInterfaceRootRegistry)
 
 public func packageInterfaceRegistrationCount() -> Int {
     packageInterfaceRegistry.registrations.count
@@ -20,6 +24,13 @@ public func packageInterfaceNestedNominalRewrite() -> String {
         let initialized = PackageInterfaceNamespace.NestedVersion(4).adding(2)
         let introduced = PackageInterfaceNamespace.NestedVersion.introduced.adding(1)
         let legacy = PackageInterfaceNamespace.NestedVersion.legacy.adding(2)
+        """).source
+}
+
+public func packageInterfaceNamedExtensionRewrite() -> String {
+    ConstExprRunner(registry: packageInterfaceRegistry).rewrite(source: """
+        let initialized = PackageInterfaceFixture(value: 2)
+        let doubled = PackageInterfaceFixture.doubled(6)
         """).source
 }
 

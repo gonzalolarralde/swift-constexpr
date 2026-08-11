@@ -1,12 +1,17 @@
 internal import ConstExpr
 
+@ConstExpr(registrationAccess: .package)
 public struct PackageInterfaceFixture {
     public let value: Int
 
-    @ConstExpr(registrationAccess: .package)
     public init(value: Int = 1) {
         self.value = value
     }
+}
+
+@ConstExprMembers(named: "Factories", registrationAccess: .package)
+public extension PackageInterfaceFixture {
+    static func doubled(_ value: Int) -> Int { value * 2 }
 }
 
 public enum PackageInterfaceNamespace {}

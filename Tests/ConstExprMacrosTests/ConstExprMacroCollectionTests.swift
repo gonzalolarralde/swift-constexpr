@@ -21,7 +21,7 @@ extension ConstExprMacroTests {
                 public init(arrayLiteral elements: Item...) {}
             }
 
-            public enum ItemBag__constExpr {
+            public enum ItemBag__constExpr: _ConstExprRuntime.RegistrationProviding {
                 public static var registrations: [_ConstExprRuntime.Registration] {
                     _ConstExprRuntime.arrayLiteralRegistrations(
                         result: (ItemBag).self,
@@ -32,6 +32,14 @@ extension ConstExprMacroTests {
                     ) + [
 
                     ]
+                }
+
+                public typealias Owner = ItemBag
+
+                public static var constExprRegistrations: [Any] {
+                    registrations.map {
+                        $0 as Any
+                    }
                 }
             }
             """,
@@ -52,11 +60,19 @@ extension ConstExprMacroTests {
             expandedSource: """
             struct ExtensionConformance {}
 
-            enum ExtensionConformance__constExpr {
+            enum ExtensionConformance__constExpr: _ConstExprRuntime.RegistrationProviding {
                 static var registrations: [_ConstExprRuntime.Registration] {
                     [
 
                     ]
+                }
+
+                typealias Owner = ExtensionConformance
+
+                static var constExprRegistrations: [Any] {
+                    registrations.map {
+                        $0 as Any
+                    }
                 }
             }
 
@@ -79,11 +95,19 @@ extension ConstExprMacroTests {
             expandedSource: """
             struct ExtensionWitness: ExpressibleByArrayLiteral {}
 
-            enum ExtensionWitness__constExpr {
+            enum ExtensionWitness__constExpr: _ConstExprRuntime.RegistrationProviding {
                 static var registrations: [_ConstExprRuntime.Registration] {
                     [
 
                     ]
+                }
+
+                typealias Owner = ExtensionWitness
+
+                static var constExprRegistrations: [Any] {
+                    registrations.map {
+                        $0 as Any
+                    }
                 }
             }
 
@@ -108,11 +132,19 @@ extension ConstExprMacroTests {
                 init(arrayLiteral elements: String...) {}
             }
 
-            enum AmbiguousBag__constExpr {
+            enum AmbiguousBag__constExpr: _ConstExprRuntime.RegistrationProviding {
                 static var registrations: [_ConstExprRuntime.Registration] {
                     [
 
                     ]
+                }
+
+                typealias Owner = AmbiguousBag
+
+                static var constExprRegistrations: [Any] {
+                    registrations.map {
+                        $0 as Any
+                    }
                 }
             }
             """,
@@ -156,7 +188,7 @@ extension ConstExprMacroTests {
                 case code(Int)
             }
 
-            public enum Status__constExpr {
+            public enum Status__constExpr: _ConstExprRuntime.RegistrationProviding {
                 public static var registrations: [_ConstExprRuntime.Registration] {
                     [
                         _ConstExprRuntime.Registration(
@@ -179,6 +211,14 @@ extension ConstExprMacroTests {
                             }
                         )
                     ]
+                }
+
+                public typealias Owner = Status
+
+                public static var constExprRegistrations: [Any] {
+                    registrations.map {
+                        $0 as Any
+                    }
                 }
             }
             """,
@@ -203,7 +243,7 @@ extension ConstExprMacroTests {
                 }
             }
 
-            enum Lookup__constExpr {
+            enum Lookup__constExpr: _ConstExprRuntime.RegistrationProviding {
                 static var registrations: [_ConstExprRuntime.Registration] {
                     [
                         _ConstExprRuntime.Registration(
@@ -231,6 +271,14 @@ extension ConstExprMacroTests {
                         )
                     ]
                 }
+
+                typealias Owner = Lookup
+
+                static var constExprRegistrations: [Any] {
+                    registrations.map {
+                        $0 as Any
+                    }
+                }
             }
             """,
             macros: macros
@@ -250,11 +298,19 @@ extension ConstExprMacroTests {
                 private let raw: Int
             }
 
-            enum State__constExpr {
+            enum State__constExpr: _ConstExprRuntime.RegistrationProviding {
                 static var registrations: [_ConstExprRuntime.Registration] {
                     [
 
                     ]
+                }
+
+                typealias Owner = State
+
+                static var constExprRegistrations: [Any] {
+                    registrations.map {
+                        $0 as Any
+                    }
                 }
             }
             """,

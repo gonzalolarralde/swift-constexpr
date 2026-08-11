@@ -17,11 +17,19 @@ extension ConstExprMacroTests {
             extension Namespace {
                 public struct Version {}
 
-                package enum Version__constExpr {
+                package enum Version__constExpr: _ConstExprRuntime.RegistrationProviding {
                     package static var registrations: [Any] {
                         [
 
                         ]
+                    }
+
+                    package typealias Owner = Version
+
+                    package static var constExprRegistrations: [Any] {
+                        registrations.map {
+                            $0 as Any
+                        }
                     }
                 }
             }

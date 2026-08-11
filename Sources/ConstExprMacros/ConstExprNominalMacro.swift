@@ -185,6 +185,13 @@ extension ConstExprMacro {
         }
         let preservedAttributes = attributes.constExprPreservedPeerAttributes
         let attributePrefix = preservedAttributes.isEmpty ? "" : "\(preservedAttributes)\n"
+        let providerConformanceMembers = """
+        \(registrationAccess)typealias Owner = \(nominalReference)
+
+        \(registrationAccess)static var constExprRegistrations: [Any] {
+            registrations.map { $0 as Any }
+        }
+        """
         if registrations.count > ConstExprRegistrationChunkSyntax.limit {
             let erasedArrayLiteral = arrayLiteralRegistrations.map {
                 requestedRegistrationAccess.erasedRegistrationPrefix($0)
@@ -196,8 +203,10 @@ extension ConstExprMacro {
                 registrationAccess: registrationAccess
             )
             let source = """
-            \(attributePrefix)\(access)enum \(nominalName)__constExpr {
+            \(attributePrefix)\(access)enum \(nominalName)__constExpr: _ConstExprRuntime.RegistrationProviding {
             \(ConstExprSyntaxSupport.indent(members, by: 4))
+
+            \(ConstExprSyntaxSupport.indent(providerConformanceMembers, by: 4))
             }
             """
             return [DeclSyntax(stringLiteral: source)]
@@ -217,12 +226,14 @@ extension ConstExprMacro {
         } ?? ""
         let listIndent = arrayLiteralRegistrations == nil ? "        " : ""
         let source = """
-        \(attributePrefix)\(access)enum \(nominalName)__constExpr {
+        \(attributePrefix)\(access)enum \(nominalName)__constExpr: _ConstExprRuntime.RegistrationProviding {
             \(registrationAccess)static var registrations: \(requestedRegistrationAccess.registrationArrayType) {
         \(arrayLiteralPrefix)\(listIndent)[
         \(entries)
                 ]
             }
+
+        \(ConstExprSyntaxSupport.indent(providerConformanceMembers, by: 4))
         }
         """
         return [DeclSyntax(stringLiteral: source)]

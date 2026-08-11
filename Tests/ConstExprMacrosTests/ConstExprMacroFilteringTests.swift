@@ -52,11 +52,19 @@ extension ConstExprMacroTests {
                 func hidden() -> Int { 1 }
             }
 
-            public enum PublicAPI__constExpr {
+            public enum PublicAPI__constExpr: _ConstExprRuntime.RegistrationProviding {
                 public static var registrations: [_ConstExprRuntime.Registration] {
                     [
 
                     ]
+                }
+
+                public typealias Owner = PublicAPI
+
+                public static var constExprRegistrations: [Any] {
+                    registrations.map {
+                        $0 as Any
+                    }
                 }
             }
             """,
@@ -77,11 +85,19 @@ extension ConstExprMacroTests {
                 public func secret() -> Int { 1 }
             }
 
-            public enum SPIProvider__constExpr {
+            public enum SPIProvider__constExpr: _ConstExprRuntime.RegistrationProviding {
                 public static var registrations: [_ConstExprRuntime.Registration] {
                     [
 
                     ]
+                }
+
+                public typealias Owner = SPIProvider
+
+                public static var constExprRegistrations: [Any] {
+                    registrations.map {
+                        $0 as Any
+                    }
                 }
             }
             """,
@@ -203,11 +219,19 @@ extension ConstExprMacroTests {
             \(declaration)
         }
 
-        enum Filtered__constExpr {
+        enum Filtered__constExpr: _ConstExprRuntime.RegistrationProviding {
             static var registrations: [_ConstExprRuntime.Registration] {
                 [
 
                 ]
+            }
+
+            typealias Owner = Filtered
+
+            static var constExprRegistrations: [Any] {
+                registrations.map {
+                    $0 as Any
+                }
             }
         }
         """
@@ -235,11 +259,19 @@ extension ConstExprMacroTests {
             \(declaration)
         }
 
-        enum FilteredClass__constExpr {
+        enum FilteredClass__constExpr: _ConstExprRuntime.RegistrationProviding {
             static var registrations: [_ConstExprRuntime.Registration] {
                 [
 
                 ]
+            }
+
+            typealias Owner = FilteredClass
+
+            static var constExprRegistrations: [Any] {
+                registrations.map {
+                    $0 as Any
+                }
             }
         }
         """
@@ -265,11 +297,19 @@ extension ConstExprMacroTests {
             \(declaration)
         }
 
-        enum FilteredBag__constExpr {
+        enum FilteredBag__constExpr: _ConstExprRuntime.RegistrationProviding {
             static var registrations: [_ConstExprRuntime.Registration] {
                 [
 
                 ]
+            }
+
+            typealias Owner = FilteredBag
+
+            static var constExprRegistrations: [Any] {
+                registrations.map {
+                    $0 as Any
+                }
             }
         }
         """

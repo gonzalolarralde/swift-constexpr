@@ -89,8 +89,9 @@ ownership-qualified, autoclosure, and closure-valued parameters; mutating or
 consuming methods; effectful accessors; and writable subscripts are outside the
 supported adapter subset. A nominal annotation sees explicit members in its
 primary body. Synthesized members and unrelated extensions are not discovered
-automatically. Annotating an extension with `@ConstExprMembers` collects all of
-its eligible immediate members, while a direct annotation can still opt in one
+automatically. Annotating an extension with `@ConstExprMembers(named:)` collects
+all of its eligible immediate members into one explicitly selected fragment,
+while a direct annotation can still opt in one
 declaration with strict diagnostics. `@ConstExprIgnored` is the explicit safety
 escape hatch for a declaration that bulk collection would otherwise accept. A
 member whose access is lower than the generated nominal provider is not exposed.

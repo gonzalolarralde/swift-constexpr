@@ -66,9 +66,10 @@ private func emitPackageAccessInterface() throws -> (Int32, String, String) {
 
     public enum CleanNamespace {}
 
+    @ConstExpr(registrationAccess: .package)
     public struct CleanExtensionAPI {}
 
-    @ConstExprMembers(registrationAccess: .package)
+    @ConstExprMembers(named: "Factories", registrationAccess: .package)
     public extension CleanExtensionAPI {
         static func make(_ value: Int) -> Self { Self() }
 
@@ -145,8 +146,61 @@ private func emitPackageAccessInterface() throws -> (Int32, String, String) {
     )
 }
 
+private func typecheckMissingNamedExtensionRoot() throws -> (Int32, String) {
+    let directory = FileManager.default.temporaryDirectory
+        .appendingPathComponent("ConstExprMissingRoot-\(UUID().uuidString)")
+    try FileManager.default.createDirectory(
+        at: directory,
+        withIntermediateDirectories: false
+    )
+    defer { try? FileManager.default.removeItem(at: directory) }
+
+    let input = directory.appendingPathComponent("Fixture.swift")
+    try """
+    import ConstExpr
+
+    struct MissingRoot {}
+
+    @ConstExprMembers(named: "Factories")
+    extension MissingRoot {
+        static func make() -> Self { Self() }
+    }
+    """.write(to: input, atomically: true, encoding: .utf8)
+
+    let build = try packageInterfaceBuildDirectory()
+    let shims = try packageInterfaceSwiftSyntaxShims(startingAt: build)
+    let process = Process()
+    let standardError = Pipe()
+    process.executableURL = URL(fileURLWithPath: "/usr/bin/xcrun")
+    process.arguments = [
+        "swiftc", "-typecheck", "-warnings-as-errors", "-swift-version", "6",
+        "-module-name", "MissingRootFixture",
+        "-I", build.appendingPathComponent("Modules").path,
+        "-Xcc", "-fmodule-map-file=\(shims.appendingPathComponent("module.modulemap").path)",
+        "-Xcc", "-I", "-Xcc", shims.path,
+        "-load-plugin-executable",
+        "\(build.appendingPathComponent("ConstExprMacros-tool").path)#ConstExprMacros",
+        input.path,
+    ]
+    process.standardOutput = Pipe()
+    process.standardError = standardError
+    try process.run()
+    process.waitUntilExit()
+    return (
+        process.terminationStatus,
+        String(
+            decoding: standardError.fileHandleForReading.readDataToEndOfFile(),
+            as: UTF8.self
+        )
+    )
+}
+
 @Test func packagePeerIsCallableFromSiblingTarget() {
-    #expect(packageInterfaceRegistrationCount() == 5)
+    #expect(packageInterfaceRegistrationCount() == 7)
+    #expect(packageInterfaceNamedExtensionRewrite() == """
+        let initialized = PackageInterfaceFixture(value: 2)
+        let doubled = 12
+        """)
     #expect(packageInterfaceNestedNominalRewrite() == """
         let initialized = 6
         let introduced = 11
@@ -165,4 +219,11 @@ private func emitPackageAccessInterface() throws -> (Int32, String, String) {
     #expect(result.2.contains("public struct CleanExtensionAPI"))
     #expect(result.2.contains("public static func make(_ value: Swift.Int)"))
     #expect(result.2.contains("public struct NestedVersion"))
+}
+
+@Test func namedExtensionRequiresPrimaryNominalProvider() throws {
+    let result = try typecheckMissingNamedExtensionRoot()
+    #expect(result.0 != 0)
+    #expect(result.1.contains("MissingRoot__constExpr"))
+    #expect(result.1.contains("cannot find type"))
 }

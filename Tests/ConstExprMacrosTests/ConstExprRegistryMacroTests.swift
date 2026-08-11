@@ -43,6 +43,21 @@ final class ConstExprRegistryMacroTests: XCTestCase {
         )
     }
 
+    func testRootAndNamedExtensionProviders() {
+        assertMacroExpansion(
+            """
+            let registry = #constExprRegistry(
+                for: Client.self,
+                extensions: ["Networking", "Persistence"]
+            )
+            """,
+            expandedSource: """
+            let registry = _ConstExprRuntime.Registry(registrations: _ConstExprRuntime.registrations(for: Client.self, from: Client__constExpr.self) + _ConstExprRuntime.registrations(fromGeneratedPeer: Client.__constExprRegistration_Networking(Client__constExpr.self)) + _ConstExprRuntime.registrations(fromGeneratedPeer: Client.__constExprRegistration_Persistence(Client__constExpr.self)))
+            """,
+            macros: macros
+        )
+    }
+
     func testLabelSelectorsDisambiguateErasedFunctionTypes() {
         assertMacroExpansion(
             """

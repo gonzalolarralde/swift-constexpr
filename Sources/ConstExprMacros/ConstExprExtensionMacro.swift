@@ -18,6 +18,26 @@ public struct ConstExprMembersMacro: MemberMacro {
             )
             return []
         }
+        if case .argumentList(let arguments) = attribute.arguments,
+           arguments.contains(where: {
+               $0.label?.constExprIdentifier == "named"
+           })
+        {
+            guard let name = ConstExprMacro.namedExtensionName(
+                from: attribute,
+                in: context
+            ) else { return [] }
+            return ConstExprMacro.expandNamedExtensionMembers(
+                extensionDecl,
+                name: name,
+                registrationAccess: ConstExprRegistrationAccessOption(
+                    attribute: attribute,
+                    in: context
+                ),
+                attribute: attribute,
+                in: context
+            )
+        }
         guard extensionDecl.genericWhereClause == nil else { return [] }
         let genericArguments = ConstExprGenericArgumentVisitor()
         genericArguments.walk(extensionDecl.extendedType)

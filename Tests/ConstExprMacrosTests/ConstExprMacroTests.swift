@@ -332,7 +332,7 @@ final class ConstExprMacroTests: XCTestCase {
                 }
             }
 
-            public enum Bar__constExpr {
+            public enum Bar__constExpr: _ConstExprRuntime.RegistrationProviding {
                 public static var registrations: [_ConstExprRuntime.Registration] {
                     [
                         _ConstExprRuntime.Registration(
@@ -382,6 +382,14 @@ final class ConstExprMacroTests: XCTestCase {
                             }
                         )
                     ]
+                }
+
+                public typealias Owner = Bar
+
+                public static var constExprRegistrations: [Any] {
+                    registrations.map {
+                        $0 as Any
+                    }
                 }
             }
             """#,

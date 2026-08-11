@@ -42,11 +42,19 @@ extension ConstExprMacroTests {
                 ) {}
             }
 
-            enum TooManyDefaults__constExpr {
+            enum TooManyDefaults__constExpr: _ConstExprRuntime.RegistrationProviding {
                 static var registrations: [_ConstExprRuntime.Registration] {
                     [
 
                     ]
+                }
+
+                typealias Owner = TooManyDefaults
+
+                static var constExprRegistrations: [Any] {
+                    registrations.map {
+                        $0 as Any
+                    }
                 }
             }
             """,

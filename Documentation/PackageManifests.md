@@ -61,7 +61,7 @@ means no invocation: the original expression stays for the compiler.
 
 The experiment conditionally annotates whole PackageDescription types with
 `@ConstExpr(registrationAccess: .package)` and extensions with
-`@ConstExprMembers(registrationAccess: .package)`. Each scope automatically
+`@ConstExprMembers(named:registrationAccess:)`. Each scope automatically
 registers every eligible immediate declaration; unsupported members are omitted,
 and `@ConstExprIgnored` excludes an otherwise eligible declaration whose body is
 not safe for speculative execution. Direct annotations remain only for isolated

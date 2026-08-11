@@ -9,6 +9,7 @@ public enum _ConstExprRuntime {
     public typealias Registry = ConstExprRegistry
     public typealias StaticTypeDescriptor = ConstExprStaticTypeDescriptor
     public typealias ValueError = ConstExprValueError
+    public typealias RegistrationProviding = ConstExprRegistrationProviding
 
     /// Lets macro-generated code ask Swift's overload resolver whether a
     /// declaration result is statically convertible to `AnyObject`. The
@@ -54,5 +55,30 @@ public enum _ConstExprRuntime {
                 resultTypeDescriptor: resultTypeDescriptor
             )
         ]
+    }
+}
+
+/// A generated, statically discoverable fragment of a constant-expression
+/// registry.
+///
+/// The associated owner lets ``constExprRegistry(for:extensions:)`` reject an
+/// extension fragment from a different nominal type at compile time. The
+/// payload is deliberately erased so package-scoped generated providers can
+/// remain absent from a library's public interface.
+public protocol ConstExprRegistrationProviding {
+    associatedtype Owner
+
+    static var constExprRegistrations: [Any] { get }
+}
+
+public extension _ConstExprRuntime {
+    /// Recovers a typed registration fragment while proving its generated
+    /// provider belongs to the requested root type.
+    static func registrations<Owner, Provider>(
+        for _: Owner.Type,
+        from _: Provider.Type
+    ) -> [Registration]
+    where Provider: ConstExprRegistrationProviding, Provider.Owner == Owner {
+        registrations(fromGeneratedPeer: Provider.constExprRegistrations)
     }
 }

@@ -13,6 +13,15 @@ public struct ConstExprMacro: PeerMacro {
             attribute: attribute,
             in: context
         )
+        if declaration.is(ExtensionDeclSyntax.self) {
+            ConstExprMacroDiagnostic.error(
+                "@ConstExpr on an extension requires named:; use the primary annotation on a nominal declaration",
+                id: "unnamed-extension",
+                at: attribute,
+                in: context
+            )
+            return []
+        }
         if let function = declaration.as(FunctionDeclSyntax.self) {
             if let memberContext = ConstExprDirectMemberContext(
                 lexicalContext: context.lexicalContext,

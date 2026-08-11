@@ -15,13 +15,15 @@ The package has four layers:
    containing registrations for sufficiently visible explicit initializers,
    nonmutating/nonconsuming methods, explicitly typed properties with ordinary
    getters, enum cases, and read-only instance subscripts in its primary body.
-   `@ConstExprMembers` applies the same eligible-member collection to an
-   extension, while `@ConstExprIgnored` removes an otherwise eligible member.
+   `@ConstExprMembers(named:)` applies the same eligible-member collection to an
+   extension and emits one owner-scoped provider fragment, while
+   `@ConstExprIgnored` removes an otherwise eligible member.
    Direct member annotations remain available when strict diagnostics are more
    useful. Package-scoped peers erase their public signature to keep
    implementation dependencies out of a library's public interface.
-2. `#constExprRegistry(...)` turns explicit declaration references into one
-   immutable `ConstExprRegistry` value. Function casts select overloads.
+2. `#constExprRegistry(for:extensions:)` combines a nominal's generated root
+   provider with named extension fragments. The declaration-list overload
+   remains available for free functions and individually selected members.
 3. `ConstExprRunner` parses a complete source file, folds Swift operator
    sequences with `SwiftOperators`, tracks lexical constants, and evaluates
    syntax bottom-up. Its terminal API can instead return a named linked value in
@@ -88,7 +90,7 @@ its primary body but cannot discover members in an unrelated extension. The
 extension uses the corresponding bulk annotation:
 
 ```swift
-@ConstExprMembers
+@ConstExprMembers(named: "Formatting")
 extension Parser {
     func summary() -> String { "characters: \(count)" }
 }
@@ -97,8 +99,20 @@ extension Parser {
 The generated providers still do nothing until a host selects them:
 
 ```swift
-let registry = #constExprRegistry(Parser.self, Parser.summary)
+let registry = #constExprRegistry(
+    for: Parser.self,
+    extensions: ["Formatting"]
+)
 ```
+
+The nominal peer conforms to `ConstExprRegistrationProviding` and records its
+`Owner` associated type. A named extension emits one generated static provider
+whose parameter is that exact nominal peer metatype. The registry macro derives
+both symbols from `for:` and the extension names, so selecting a fragment for a
+different root or misspelling its name fails during ordinary Swift type
+checking. The extension names are strings because freestanding macro arguments
+are type-checked before expansion; a shorthand dependent metatype such as
+`.Networking.self` has no representable Swift type at that stage.
 
 This separation is intentional. Declaration annotations describe what may be
 adapted; registry aggregation describes what one evaluator is trusted to execute.
@@ -430,7 +444,7 @@ static, writable, or effectful subscripts; unsafe SPI/isolation contexts;
 dynamic members; overridable instance methods, properties, and subscripts on a
 non-final class; implicitly-unwrapped optional types; global-actor isolation;
 compiler-synthesized members; and members from unrelated extensions unless the
-extension is annotated with `@ConstExprMembers` or a member is annotated
+extension is annotated with `@ConstExprMembers(named:)` or a member is annotated
 directly. A `final` member on a non-final class is eligible.
 Self-contained literal defaults have no eight-parameter cap; nontrivial copied
 defaults retain the bounded omission path. Availability is recorded on generated
