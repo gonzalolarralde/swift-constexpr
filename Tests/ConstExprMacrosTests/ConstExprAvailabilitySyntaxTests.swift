@@ -1,4 +1,4 @@
-@testable import ConstExprMacros
+@testable import ConstExprMacroImplementation
 import SwiftParser
 import SwiftSyntax
 import XCTest

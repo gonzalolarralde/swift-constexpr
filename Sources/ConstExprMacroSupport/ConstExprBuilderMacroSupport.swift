@@ -9,7 +9,12 @@ import SwiftSyntaxMacros
 /// The library supplies a pure registered builder with `buildExpression`, both
 /// `buildPartialBlock` methods, `buildFinalResult`, and an empty `buildBlock`.
 /// These methods must have the same unambiguous behavior in the host registry
-/// and the consumer. This is a deliberately limited transform, not Swift's
+/// and the consumer. Mixed bodies retain dynamic work in explicit builder calls;
+/// folded components are not passed through `buildExpression` a second time.
+/// `runtimeBuilderType` can name the same builder through its module-qualified
+/// consumer API when its registered spelling is different. Runtime hooks must
+/// be accessible to the consumer; emitted calls use a hygienic local type alias.
+/// This is a deliberately limited transform, not Swift's
 /// general result-builder type checker: control flow, effects, and explicit
 /// signatures are left to the runtime function with its real builder annotation.
 public enum ConstExprBuilderMacroSupport {
@@ -19,6 +24,7 @@ public enum ConstExprBuilderMacroSupport {
         registry: ConstExprRegistry,
         builderType: String,
         runtimeFunction: String,
+        runtimeBuilderType: String? = nil,
         requireConstantArgumentLabel: String? = nil,
         options: ConstExprRewriteOptions = .init()
     ) -> ExprSyntax {
@@ -49,25 +55,40 @@ public enum ConstExprBuilderMacroSupport {
         guard let source = loweredSource(closure, builder: builderType, in: context) else {
             return fail("only synchronous, nonthrowing straight-line expressions and immutable local bindings are supported")
         }
-        switch ConstExprRunner(registry: registry, options: options).evaluateValue(
+        let runner = ConstExprRunner(registry: registry, options: options)
+        let fileName = "<ConstExpr #\(name)>"
+        let failureReason: String
+        switch runner.evaluateValue(
             source: source.text,
             binding: source.result,
             policy: .certifying,
-            fileName: "<ConstExpr #\(name)>"
+            fileName: fileName
         ) {
         case .success(let value):
             do { return try value.constExprExpression() }
-            catch { return fail("the result cannot be represented as Swift source") }
+            catch { failureReason = "the result cannot be represented as Swift source" }
         case .fallback(let failure):
-            return fail(failure.message)
+            failureReason = failure.message
         }
+        guard !requireConstant else { return fail(failureReason) }
+
+        let rewritten = runner.rewrite(source: source.text, fileName: fileName)
+        guard !rewritten.hasErrors, rewritten.source != source.text else { return fallback }
+        return ConstExprBuilderResidual.expression(
+            source: rewritten.source,
+            result: source.result,
+            generatedBindings: source.generatedBindings,
+            builderType: builderType,
+            runtimeBuilderType: runtimeBuilderType ?? builderType,
+            builderAlias: context.makeUniqueName("constExprBuilderType").text
+        ) ?? fallback
     }
 
     private static func loweredSource(
         _ closure: ClosureExprSyntax,
         builder: String,
         in context: some MacroExpansionContext
-    ) -> (text: String, result: String)? {
+    ) -> (text: String, result: String, generatedBindings: Set<String>)? {
         guard closure.signature == nil else { return nil }
         // Moving the body to top-level source must not erase an inferred
         // throwing/async closure effect or repair an invalid consumer program.
@@ -76,18 +97,26 @@ public enum ConstExprBuilderMacroSupport {
         guard !effects.found else { return nil }
         var lines: [String] = []
         var components: [String] = []
+        var generatedBindings: Set<String> = []
+        let builderRoot = builder.split(separator: ".").first.map { String($0).filter { $0 != "`" } }
         for item in closure.statements {
             switch item.item {
             case .decl(let declaration):
                 guard let binding = declaration.as(VariableDeclSyntax.self),
                       binding.bindingSpecifier.tokenKind == .keyword(.let),
                       binding.attributes.isEmpty, binding.modifiers.isEmpty,
-                      binding.bindings.allSatisfy({ $0.initializer != nil && $0.accessorBlock == nil })
+                      binding.bindings.allSatisfy({
+                          $0.initializer != nil && $0.accessorBlock == nil
+                              && !$0.pattern.tokens(viewMode: .sourceAccurate).contains(where: {
+                                  $0.text.filter { $0 != "`" } == builderRoot
+                              })
+                      })
                 else { return nil }
                 lines.append(binding.trimmedDescription)
             case .expr(let expression):
                 guard !expression.is(IfExprSyntax.self), !expression.is(SwitchExprSyntax.self) else { return nil }
                 let component = context.makeUniqueName("constExprComponent").text
+                generatedBindings.insert(component)
                 lines.append("let \(component) = \(builder).buildExpression(\(expression.trimmedDescription))")
                 components.append(component)
             default:
@@ -97,10 +126,12 @@ public enum ConstExprBuilderMacroSupport {
         // SE-0348 evaluates all expressions before accumulating partial blocks.
         // Keep that ordering, including local declarations between expressions.
         var partial = context.makeUniqueName("constExprPartial").text
+        generatedBindings.insert(partial)
         if let first = components.first {
             lines.append("let \(partial) = \(builder).buildPartialBlock(first: \(first))")
             for next in components.dropFirst() {
                 let combined = context.makeUniqueName("constExprPartial").text
+                generatedBindings.insert(combined)
                 lines.append("let \(combined) = \(builder).buildPartialBlock(accumulated: \(partial), next: \(next))")
                 partial = combined
             }
@@ -108,8 +139,9 @@ public enum ConstExprBuilderMacroSupport {
             lines.append("let \(partial) = \(builder).buildBlock()")
         }
         let result = context.makeUniqueName("constExprBuilderResult").text
+        generatedBindings.insert(result)
         lines.append("let \(result) = \(builder).buildFinalResult(\(partial))")
-        return (lines.joined(separator: "\n"), result)
+        return (lines.joined(separator: "\n"), result, generatedBindings)
     }
 
     private static func diagnose(

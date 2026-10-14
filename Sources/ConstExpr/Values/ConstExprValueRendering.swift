@@ -88,8 +88,22 @@ extension ConstExprValue {
             return ExprSyntax(stringLiteral: "nil as \(type)")
 
         case .array(let elements):
+            let elementType: ConstExprSourceTypeKey?
+            if let explicitTypeName,
+               case .array(let element) = ConstExprSourceTypeKey(sourceName: explicitTypeName)
+            {
+                elementType = element
+            } else {
+                elementType = nil
+            }
             let rendered = try elements.map {
-                try $0.constExprExpression(
+                if case .opaque(let value) = $0.payload,
+                   ObjectIdentifier($0.staticType) == ObjectIdentifier(Swift.type(of: value)),
+                   let literal = contextualNumberLiteral(value, contextualType: elementType)
+                {
+                    return literal
+                }
+                return try $0.constExprExpression(
                     contextualizedByOuterType: explicitTypeName != nil
                 ).description
             }
@@ -194,6 +208,31 @@ extension ConstExprValue {
     var dictionaryPayload: [(ConstExprValue, ConstExprValue)]? {
         guard case .dictionary(let entries) = payload else { return nil }
         return entries
+    }
+}
+
+/// Only a matching concrete numeric context can replace a scalar's type
+/// annotation. In particular, `[Any]` must retain each number's dynamic type,
+/// and custom representable values must keep their author-provided expression.
+func contextualNumberLiteral(
+    _ value: Any,
+    contextualType: ConstExprSourceTypeKey?
+) -> String? {
+    guard case .leaf(let name) = contextualType,
+          String(reflecting: Swift.type(of: value)) == "Swift.\(name)"
+    else { return nil }
+    switch name {
+    case "Int", "Int8", "Int16", "Int32", "Int64",
+         "UInt", "UInt8", "UInt16", "UInt32", "UInt64":
+        return String(describing: value)
+    case "Float":
+        guard let number = value as? Float, number.isFinite else { return nil }
+        return String(number)
+    case "Double":
+        guard let number = value as? Double, number.isFinite else { return nil }
+        return String(number)
+    default:
+        return nil
     }
 }
 

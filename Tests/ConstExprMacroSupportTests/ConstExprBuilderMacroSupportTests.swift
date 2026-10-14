@@ -53,10 +53,40 @@ final class ConstExprBuilderMacroSupportTests: XCTestCase {
         XCTAssertTrue(result.diagnostics.isEmpty)
     }
 
-    func testUnknownInputFallsBackAsWholeClosure() throws {
-        let result = try expand(#"#bytes { "a"; runtimeValue }"#)
-        XCTAssertEqual(result.expression, #"Runtime.encode { "a"; runtimeValue }"#)
+    func testConstantsBeforeAndAfterUnknownInputArePartiallyEvaluated() throws {
+        let result = try expand(#"#bytes { "a"; runtimeValue; "c" }"#)
+        XCTAssertTrue(result.expression.contains(#"accumulated: "first:<a>""#), result.expression)
+        XCTAssertTrue(result.expression.contains(#"next: "<c>""#), result.expression)
+        XCTAssertTrue(result.expression.contains(".buildExpression(runtimeValue)"))
+        XCTAssertEqual(result.expression.components(separatedBy: ".buildExpression(").count - 1, 1)
+        XCTAssertFalse(result.expression.contains("Runtime.encode"))
         XCTAssertTrue(result.diagnostics.isEmpty)
+    }
+
+    func testPartialEvaluationPreservesUserInitializersEvenWhenUnused() throws {
+        let result = try expand(#"#bytes { let ignored: String = makeText(); "a"; runtimeValue }"#)
+        XCTAssertTrue(result.expression.contains("let _: String = makeText()"), result.expression)
+        XCTAssertEqual(result.expression.components(separatedBy: "makeText()").count - 1, 1)
+        XCTAssertTrue(result.diagnostics.isEmpty)
+    }
+
+    func testUnknownUnusedBindingKeepsItsOriginalLifetime() throws {
+        let result = try expand(#"#bytes { let object = makeObject(); "a"; runtimeValue }"#)
+        XCTAssertEqual(result.expression, #"Runtime.encode { let object = makeObject(); "a"; runtimeValue }"#)
+        XCTAssertTrue(result.diagnostics.isEmpty)
+    }
+
+    func testPropagatedLocalBindingsDoNotIntroduceUnusedBindingWarnings() throws {
+        let result = try expand(#"#bytes { let text: String = "a"; runtimeValue; text }"#)
+        XCTAssertTrue(result.expression.contains(#"let _: String = "a""#), result.expression)
+        XCTAssertTrue(result.expression.contains(#"next: "<a>""#), result.expression)
+        XCTAssertTrue(result.diagnostics.isEmpty)
+    }
+
+    func testStrictMixedBodyStillRejectsResidualWork() throws {
+        let result = try expand(#"#bytes(requireConstant: true) { "a"; runtimeValue; "c" }"#)
+        XCTAssertEqual(result.diagnostics.count, 1)
+        XCTAssertEqual(result.expression, #"Runtime.encode { "a"; runtimeValue; "c" }"#)
     }
 
     func testUnknownInputInStrictModeIsAnError() throws {
@@ -81,6 +111,8 @@ final class ConstExprBuilderMacroSupportTests: XCTestCase {
             #"{ try TextBuilder.buildExpression("a") }"#,
             #"{ let x = try? makeText(); "a" }"#,
             #"{ await makeText() }"#,
+            #"{ let TextBuilder = something; (1 + 2) as Int }"#,
+            #"{ let `TextBuilder` = something; (1 + 2) as Int }"#,
         ]
         for body in bodies {
             let result = try expand("#bytes \(body)")

@@ -149,7 +149,11 @@ extension Optional: ConstExprStructuralValueDecodable {
 
 extension Array: ConstExprRepresentable where Element: ConstExprRepresentable {
     public func constExprExpression() throws -> ExprSyntax {
-        let body = try map { try $0.constExprExpression().description }.joined(separator: ", ")
+        let elementType = ConstExprSourceTypeKey(sourceName: String(reflecting: Element.self))
+        let body = try map {
+            try contextualNumberLiteral($0, contextualType: elementType)
+                ?? $0.constExprExpression().description
+        }.joined(separator: ", ")
         return ExprSyntax(
             stringLiteral: "([\(body)]) as \(String(reflecting: Self.self))"
         )

@@ -21,35 +21,80 @@ final class PacketBytesMacroTests: XCTestCase {
             }
             """,
             expandedSource: """
-            let bytes = ([(52) as Swift.UInt8, (18) as Swift.UInt8, (2) as Swift.UInt8, (3) as Swift.UInt8, (4) as Swift.UInt8]) as [UInt8]
+            let bytes = ([52, 18, 2, 3, 4]) as [UInt8]
             """,
             macros: macros
         )
     }
 
-    func testRuntimeCaptureKeepsTheWholeBuilder() {
-        assertMacroExpansion(
+    func testMixedBodyFoldsStaticFieldsOnBothSidesOfRuntimeCapture() {
+        let (expanded, context) = expand(
             """
             let bytes = #packetBytes {
+                Packet.UInt16(0xCAFE, order: .bigEndian)
                 Packet.UInt8(opcode)
                 Packet.Bytes([3, 4])
+                Packet.UInt16(0xBEEF, order: .bigEndian)
             }
-            """,
-            expandedSource: """
-            let bytes = Packet.encode {
-                Packet.UInt8(opcode)
-                Packet.Bytes([3, 4])
-            }
-            """,
-            macros: macros
+            """
         )
+        XCTAssertTrue(context.diagnostics.isEmpty, "\(context.diagnostics)")
+        XCTAssertTrue(expanded.description.contains("Packet.UInt8(opcode)"))
+        XCTAssertFalse(expanded.description.contains("Packet.UInt16("))
+        XCTAssertFalse(expanded.description.contains("Packet.Bytes("))
+        XCTAssertEqual(expanded.description.components(separatedBy: ".buildExpression(").count - 1, 1)
+        XCTAssertTrue(expanded.description.contains("= PacketKit.PacketBuilder"))
+        XCTAssertFalse(expanded.description.contains("as Swift.UInt8"))
+        let visitor = LiteralBytesVisitor(viewMode: .sourceAccurate)
+        visitor.walk(expanded)
+        XCTAssertEqual(visitor.bytes, [202, 254, 3, 4, 190, 239])
+    }
+
+    func testKnownArgumentsInsideADynamicConsumerCallAreFolded() {
+        let (expanded, context) = expand("""
+        let bytes = #packetBytes {
+            combine(Packet.UTF8("AB"), payload)
+        }
+        """)
+        XCTAssertTrue(context.diagnostics.isEmpty, "\(context.diagnostics)")
+        XCTAssertTrue(expanded.description.contains("combine("))
+        XCTAssertTrue(expanded.description.contains("payload"))
+        XCTAssertFalse(expanded.description.contains("Packet.UTF8("))
+        let visitor = LiteralBytesVisitor(viewMode: .sourceAccurate)
+        visitor.walk(expanded)
+        XCTAssertEqual(visitor.bytes, [65, 66])
+    }
+
+    func testInferredConstantArrayBindingStillFoldsInAMixedBody() {
+        let (expanded, context) = expand("""
+        let bytes = #packetBytes {
+            let header = Packet.UTF8("AB")
+            Packet.Bytes(header)
+            Packet.UInt8(opcode)
+        }
+        """)
+        XCTAssertTrue(context.diagnostics.isEmpty, "\(context.diagnostics)")
+        XCTAssertFalse(expanded.description.contains("Packet.UTF8("), expanded.description)
+        XCTAssertFalse(expanded.description.contains("Packet.Bytes("), expanded.description)
+        XCTAssertTrue(expanded.description.contains(".buildExpression(Packet.UInt8(opcode))"))
+    }
+
+    func testStrictMixedBodyReportsAnError() {
+        let (_, context) = expand("""
+        let bytes = #packetBytes(requireConstant: true) {
+            Packet.UTF8("PKT")
+            Packet.UInt8(opcode)
+        }
+        """)
+        XCTAssertEqual(context.diagnostics.count, 1)
+        XCTAssertTrue(context.diagnostics[0].message.hasPrefix("#packetBytes could not produce a compile-time constant:"))
     }
 
     func testConsumerHelperNeedsNoRegistrationAtRuntime() {
         assertMacroExpansion(
             "let bytes = #packetBytes { makeBytes() }",
             expandedSource: """
-            let bytes = Packet.encode {
+            let bytes = PacketKit.Packet.encode {
                 makeBytes()
             }
             """,
@@ -66,15 +111,7 @@ final class PacketBytesMacroTests: XCTestCase {
             contentsOf: examples.appendingPathComponent("Consumer/Sources/PacketDemo/Animation.swift"),
             encoding: .utf8
         )
-        let tree = Parser.parse(source: source)
-        let context = BasicMacroExpansionContext()
-        let expanded = tree.expand(
-            macros: macros,
-            contextGenerator: { syntax in
-                BasicMacroExpansionContext(sharingWith: context, lexicalContext: syntax.allMacroLexicalContexts())
-            },
-            indentationWidth: .spaces(4)
-        )
+        let (expanded, context) = expand(source)
         XCTAssertTrue(context.diagnostics.isEmpty, "\(context.diagnostics)")
         let visitor = LiteralBytesVisitor(viewMode: .sourceAccurate)
         visitor.walk(expanded)
@@ -84,6 +121,20 @@ final class PacketBytesMacroTests: XCTestCase {
         XCTAssertEqual(visitor.bytes.count, 1625)
         XCTAssertEqual(Array(visitor.bytes.prefix(6)), Array("GIF89a".utf8))
         XCTAssertEqual(visitor.bytes.last, 0x3B)
+        XCTAssertFalse(expanded.description.contains("as Swift.UInt8"))
+    }
+
+    private func expand(_ source: String) -> (Syntax, BasicMacroExpansionContext) {
+        let tree = Parser.parse(source: source)
+        let context = BasicMacroExpansionContext()
+        let expanded = tree.expand(
+            macros: macros,
+            contextGenerator: { syntax in
+                BasicMacroExpansionContext(sharingWith: context, lexicalContext: syntax.allMacroLexicalContexts())
+            },
+            indentationWidth: .spaces(4)
+        )
+        return (Syntax(expanded), context)
     }
 }
 

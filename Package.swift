@@ -16,6 +16,10 @@ let package = Package(
             name: "ConstExprMacroSupport",
             targets: ["ConstExprMacroSupport"]
         ),
+        .plugin(
+            name: "GenerateConstExprRegistry",
+            targets: ["GenerateConstExprRegistry"]
+        ),
         .executable(
             name: "swift-constexpr-example",
             targets: ["ConstExprExampleCLI"]
@@ -40,19 +44,62 @@ let package = Package(
         .macro(
             name: "ConstExprMacros",
             dependencies: [
+                "ConstExprMacroImplementation",
                 .product(name: "SwiftCompilerPlugin", package: "swift-syntax"),
+                .product(name: "SwiftSyntax", package: "swift-syntax"),
+                .product(name: "SwiftSyntaxMacros", package: "swift-syntax"),
+            ],
+            path: "Sources/ConstExprMacroPlugin"
+        ),
+        // Shared by the compiler plugin and source-only registry discovery.
+        .target(
+            name: "ConstExprMacroImplementation",
+            dependencies: [
                 .product(name: "SwiftDiagnostics", package: "swift-syntax"),
                 .product(name: "SwiftSyntax", package: "swift-syntax"),
                 .product(name: "SwiftSyntaxBuilder", package: "swift-syntax"),
                 .product(name: "SwiftSyntaxMacros", package: "swift-syntax"),
+            ],
+            path: "Sources/ConstExprMacros"
+        ),
+        .target(
+            name: "ConstExprRegistryGeneration",
+            dependencies: [
+                "ConstExprMacroImplementation",
+                .product(name: "SwiftDiagnostics", package: "swift-syntax"),
+                .product(name: "SwiftParser", package: "swift-syntax"),
+                .product(name: "SwiftParserDiagnostics", package: "swift-syntax"),
+                .product(name: "SwiftSyntax", package: "swift-syntax"),
+                .product(name: "SwiftSyntaxBuilder", package: "swift-syntax"),
+                .product(name: "SwiftSyntaxMacros", package: "swift-syntax"),
+                .product(name: "SwiftSyntaxMacroExpansion", package: "swift-syntax"),
             ]
+        ),
+        .executableTarget(
+            name: "ConstExprRegistryGenerator",
+            dependencies: ["ConstExprRegistryGeneration"]
+        ),
+        .plugin(
+            name: "GenerateConstExprRegistry",
+            capability: .command(
+                intent: .custom(
+                    verb: "generate-constexpr-registry",
+                    description: "Generate a registry from a target's ConstExpr annotations"
+                ),
+                permissions: [
+                    .writeToPackageDirectory(reason: "Write the selected target's generated registry source"),
+                ]
+            ),
+            dependencies: ["ConstExprRegistryGenerator"]
         ),
         .target(
             name: "ConstExprMacroSupport",
             dependencies: [
                 "ConstExpr",
                 .product(name: "SwiftDiagnostics", package: "swift-syntax"),
+                .product(name: "SwiftParser", package: "swift-syntax"),
                 .product(name: "SwiftSyntax", package: "swift-syntax"),
+                .product(name: "SwiftSyntaxBuilder", package: "swift-syntax"),
                 .product(name: "SwiftSyntaxMacros", package: "swift-syntax"),
             ]
         ),
@@ -111,13 +158,17 @@ let package = Package(
         .testTarget(
             name: "ConstExprMacrosTests",
             dependencies: [
-                "ConstExprMacros",
+                "ConstExprMacroImplementation",
                 "ConstExprEvaluateExampleMacros",
                 .product(name: "SwiftParser", package: "swift-syntax"),
                 .product(name: "SwiftSyntaxMacroExpansion", package: "swift-syntax"),
                 .product(name: "SwiftSyntaxMacros", package: "swift-syntax"),
                 .product(name: "SwiftSyntaxMacrosTestSupport", package: "swift-syntax"),
             ]
+        ),
+        .testTarget(
+            name: "ConstExprRegistryGenerationTests",
+            dependencies: ["ConstExprRegistryGeneration"]
         ),
         .testTarget(
             name: "ConstExprMacroSupportTests",
@@ -133,6 +184,7 @@ let package = Package(
             name: "ConstExprIntegrationTests",
             dependencies: [
                 "ConstExpr",
+                "ConstExprRegistryGeneration",
                 "ConstExprExampleDefinitions",
                 "ConstExprExampleRegistry",
                 "ConstExprEvaluateExample",

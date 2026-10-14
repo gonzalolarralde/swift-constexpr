@@ -364,7 +364,7 @@ final class PrivateStructuralDerived: PrivateStructuralBase {
     #expect(try typed.require([Int64].self) == [1, 2])
     #expect(
         try typed.renderSource()
-            == "([(1) as Swift.Int64, (2) as Swift.Int64]) as Swift.Array<Swift.Int64>"
+            == "([1, 2]) as Swift.Array<Swift.Int64>"
     )
 
     let boxed = ConstExprValue([Int8(1), Int8(2)])

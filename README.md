@@ -47,7 +47,8 @@ let bytes = #packetBytes(requireConstant: true) {
 The consumer depends only on PacketKit and builds normally with SwiftPM. The
 library author owns the annotations, registry, and a thin compiler plugin that
 delegates to `ConstExprBuilderMacroSupport`. With `requireConstant: true`, an
-unresolved input is a build error; otherwise the whole builder falls back to
+unresolved input is a build error. Otherwise, supported mixed bodies fold their
+known fields and retain dynamic computation; unsupported bodies fall back to
 ordinary Swift. The CLI example generates an entire looping, two-frame GIF
 during macro expansion and only writes those constant bytes at runtime:
 
@@ -58,6 +59,37 @@ swift run --package-path Examples/Consumer PacketDemo /tmp/packet.gif
 ConstExpr remains a transitive dependency, but the consumer needs no direct
 ConstExpr dependency, import, registry, or custom build step. The rest of this
 guide explains the APIs used by library authors and evaluator hosts.
+
+### Mix constants with runtime fields
+
+Omit `requireConstant: true` when only part of a builder body is known:
+
+```swift
+func message(opcode: UInt8, payload: [UInt8]) -> [UInt8] {
+    #packetBytes {
+        Packet.UInt16(0xCAFE, order: .bigEndian)
+        Packet.UInt8(opcode)
+        Packet.Bytes(payload)
+        Packet.UInt16(0xBEEF, order: .bigEndian)
+    }
+}
+```
+
+Both the header and trailer become literal bytes; the dynamic fields and final
+assembly remain runtime work. Known arguments inside otherwise dynamic calls
+can fold too. The expansion preserves dynamic evaluation order and single
+evaluation, and does not pass folded components through `buildExpression`
+again. If nothing folds or safe partial output is unavailable, the original
+runtime builder is retained. Strict mode rejects every partially dynamic result.
+
+`ConstExprBuilderMacroSupport` supports synchronous, nonthrowing straight-line
+expressions and immutable local bindings, not general result-builder control
+flow. PacketBuilder has no conditional or loop-building hooks. Library authors
+supply the registered builder hooks and runtime fallback; the
+[PacketKit guide](Examples/README.md#the-library-authors-view) shows the helper
+configuration and the public/model/macro target split. PacketKit re-exports its
+model using the underscored `@_exported` attribute; public type aliases remain
+an alternative when a narrower surface is preferred.
 
 ## Add ConstExpr to a package
 
@@ -206,6 +238,52 @@ let registry = #constExprRegistry(
 
 The registry is both a lookup table and a trust boundary. Only linked,
 registered declarations can execute.
+
+### Generate a registry from an annotated target
+
+When a host intentionally trusts every annotated provider in one library
+target, the `GenerateConstExprRegistry` command plugin can maintain that list.
+It uses the same annotation expansion and eligibility rules as the compiler
+macros, without building or executing the selected library.
+
+For PacketKit, run from this repository's root:
+
+```sh
+swift package --package-path Examples/LibraryAuthor \
+  --allow-writing-to-package-directory generate-constexpr-registry \
+  --module PacketKitModel --output-target PacketKitMacros \
+  --registry-name PacketKitRegistry
+```
+
+This writes `PacketKitMacros/PacketKitRegistry.generated.swift` inside its
+source directory. The handwritten macro uses `PacketKitRegistry.value`.
+Check in the generated file; consumers still build normally. Rerun after
+changing annotations or API signatures, and append `--check` in CI to fail on
+missing or stale output without changing package files. Unchanged output is
+not rewritten. SwiftPM's write permission applies to the command as a whole,
+including its read-only check mode.
+
+Both targets must belong to the package where the command runs. The output
+target must directly depend on the source target (unless they are the same),
+and have the `ConstExpr` and imported-module dependencies needed by the
+generated source. The command does not edit `Package.swift`. Cross-target
+providers and their enclosing types must be package/public; internal providers
+can be collected with the same target for both options. Without
+`--registry-name`, the name is `<SourceModule>GeneratedRegistry`.
+
+Discovery handles nominal providers, explicitly annotated nested types,
+individual functions/properties/initializers/subscripts, and unnamed or named
+`@ConstExprMembers` extensions. Overloads use typed selectors; members already
+included in their nominal provider are not duplicated. Unsupported members of
+bulk annotations keep the macros' existing omission rules. Explicit annotations
+that cannot produce an accessible provider are errors.
+
+This is a source-only command, not whole-module type checking. Conditional
+providers/imports and availability- or SPI-gated providers require a manually
+guarded registry. Other macros' expansions are not scanned; build-generated
+providers are not supported. Swift still type-checks all emitted selectors.
+Only the matching generator-owned file can be overwritten, never a handwritten
+file. This automates aggregation, not purity inference or implicit registration.
 
 ## Rewrite Swift source
 
@@ -436,6 +514,19 @@ does not register a separate executable adapter for every `[Product]` or
 be registered; the automatic variadic trampoline supports up to 32 elements,
 while an explicit array-backed adapter may be unbounded.
 
+Rendered numeric arrays keep their element type with one outer cast, rather
+than repeating a redundant cast on each literal:
+
+```swift
+[71, 73, 70, 56, 57, 97] as [Swift.UInt8]
+```
+
+This compact form applies when the explicit array element type matches the
+linked built-in numeric values. The outer type remains important for overload
+selection and empty arrays. Standalone values and erased or uncertain element
+contexts retain the casts they need; nonfinite floating-point values keep
+their specialized representations.
+
 ## Fallback is part of the design
 
 ConstExpr does not contain Swift's constraint solver and does not interpret
@@ -510,9 +601,20 @@ swift run swift-constexpr-example --output Rewritten.swift Input.swift
 cat Input.swift | swift run swift-constexpr-example -
 ```
 
-Run the test suite with strict warnings and dependency imports using:
+Run the root suite and both PacketKit package suites with strict warnings and
+dependency imports using:
 
 ```sh
 swift test -Xswiftc -warnings-as-errors \
   --explicit-target-dependency-import-check error
+swift test --package-path Examples/LibraryAuthor -Xswiftc -warnings-as-errors \
+  --explicit-target-dependency-import-check error
+swift test --package-path Examples/Consumer -Xswiftc -warnings-as-errors \
+  --explicit-target-dependency-import-check error
 ```
+
+The suites cover partial builder semantics, typed numeric-array rendering,
+generated registries compiled in the same and separate modules, safe file
+regeneration, and the complete GIF expansion and decoding. Also run the
+[registry generation command](#generate-a-registry-from-an-annotated-target)
+with `--check` to catch a stale checked-in registry.
