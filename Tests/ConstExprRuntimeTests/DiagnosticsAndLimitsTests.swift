@@ -1,5 +1,6 @@
 import Testing
 @testable import ConstExpr
+@testable import ConstExprEvaluation
 
 private enum ExpectedFailure: Error, CustomStringConvertible {
     case failed

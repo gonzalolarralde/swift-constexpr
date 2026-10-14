@@ -1,4 +1,5 @@
 import ConstExpr
+import ConstExprEvaluation
 import ConstExprMacroSupport
 import Foundation
 import SwiftParser
@@ -16,6 +17,9 @@ private enum DistinctBuilder {
     static func buildPartialBlock(accumulated: String, next: String) -> String { "(\(accumulated)+\(next))" }
     static func buildFinalResult(_ value: String) -> String { "[\(value)]" }
     static func buildBlock() -> String { "empty" }
+    static func buildEither(first: String) -> String { "L(\(first))" }
+    static func buildEither(second: String) -> String { "R(\(second))" }
+    static func buildOptional(_ value: String?) -> String { value.map { "O(\($0))" } ?? "none" }
 }
 
 final class ConstExprBuilderResidualCompilerTests: XCTestCase {
@@ -95,14 +99,46 @@ final class ConstExprBuilderResidualCompilerTests: XCTestCase {
         XCTAssertEqual(result.output, "[(((e7)+e9)+e11)]\n")
     }
 
-    private func expand(_ body: String) throws -> String {
+    func testKnownBranchResidualPreservesScopesOrderingAndSingleEvaluation() throws {
+        let body = """
+        let value = read("outer", 7)
+        value
+        if true {
+            let value = read("inner", 3)
+            value
+            if false { read("unselected", 99) } else { 11 }
+        }
+        value
+        read("last", 5)
+        """
+        let expanded = try expand(body, supportsBranches: true)
+        XCTAssertFalse(expanded.contains("unselected"), expanded)
+        let result = try compileAndRun(runtimeSupport + """
+
+        func original() -> String { Runtime.encode { \(body) } }
+        func residual() -> String { \(expanded) }
+        let expected = original()
+        let expectedEvents = events
+        events = []
+        let actual = residual()
+        precondition(actual == expected)
+        precondition(events == expectedEvents && events == ["outer", "inner", "last"])
+        print("passed")
+        """)
+        XCTAssertEqual(result.status, 0, result.error)
+        XCTAssertTrue(result.error.isEmpty, result.error)
+        XCTAssertEqual(result.output, "passed\n")
+    }
+
+    private func expand(_ body: String, supportsBranches: Bool = false) throws -> String {
         let tree = Parser.parse(source: "#bytes {\n\(body)\n}")
         let expression = try XCTUnwrap(tree.statements.first?.item.as(MacroExpansionExprSyntax.self))
         let context = BasicMacroExpansionContext()
         let registry = #constExprRegistry(DistinctBuilder.self)
         let result = ConstExprBuilderMacroSupport.expansion(
             of: expression, in: context, registry: registry,
-            builderType: "DistinctBuilder", runtimeFunction: "Runtime.encode"
+            builderType: "DistinctBuilder", runtimeFunction: "Runtime.encode",
+            supportsBranches: supportsBranches
         )
         XCTAssertTrue(context.diagnostics.isEmpty, "\(context.diagnostics)")
         return result.description
@@ -116,6 +152,9 @@ final class ConstExprBuilderResidualCompilerTests: XCTestCase {
         static func buildPartialBlock(accumulated: String, next: String) -> String { "(\(accumulated)+\(next))" }
         static func buildFinalResult(_ value: String) -> String { "[\(value)]" }
         static func buildBlock() -> String { "empty" }
+        static func buildEither(first: String) -> String { "L(\(first))" }
+        static func buildEither(second: String) -> String { "R(\(second))" }
+        static func buildOptional(_ value: String?) -> String { value.map { "O(\($0))" } ?? "none" }
     }
     enum Runtime {
         static func encode(@DistinctBuilder _ body: () -> String) -> String { body() }

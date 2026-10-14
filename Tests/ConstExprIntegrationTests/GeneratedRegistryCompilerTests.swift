@@ -34,8 +34,7 @@ import Testing
     ])
     try #require(modelResult.status == 0, Comment(rawValue: modelResult.output))
     let objects = try registryLinkedModules.flatMap { module in
-        try FileManager.default.contentsOfDirectory(at: build.appendingPathComponent("\(module).build"), includingPropertiesForKeys: nil)
-            .filter { $0.pathExtension == "o" }.sorted { $0.path < $1.path }
+        try compilerFixtureObjects(module: module, build: build)
     }
     let executable = directory.appendingPathComponent("Fixture")
     let hostResult = try runRegistryFixtureProcess("/usr/bin/xcrun", common + [
@@ -52,6 +51,7 @@ import Testing
     defer { try? FileManager.default.removeItem(at: directory) }
     let source = """
     import ConstExpr
+    import ConstExprEvaluation
     @ConstExpr enum Internal { static func value() -> Int { 7 } }
     @main struct Main {
         static func main() {
@@ -71,8 +71,7 @@ import Testing
     let build = try activeSwiftPMBuildDirectory()
     let shims = try swiftSyntaxShims(startingAt: build)
     let objects = try registryLinkedModules.flatMap { module in
-        try FileManager.default.contentsOfDirectory(at: build.appendingPathComponent("\(module).build"), includingPropertiesForKeys: nil)
-            .filter { $0.pathExtension == "o" }.sorted { $0.path < $1.path }
+        try compilerFixtureObjects(module: module, build: build)
     }
     let executable = directory.appendingPathComponent("Fixture")
     let compilation = try runRegistryFixtureProcess("/usr/bin/xcrun", [
@@ -102,7 +101,7 @@ private func runRegistryFixtureProcess(_ executable: String, _ arguments: [Strin
 }
 
 private let registryLinkedModules = [
-    "ConstExpr", "SwiftSyntax", "SwiftSyntax509", "SwiftSyntax510", "SwiftSyntax600",
+    "ConstExpr", "ConstExprEvaluation", "SwiftSyntax", "SwiftSyntax509", "SwiftSyntax510", "SwiftSyntax600",
     "SwiftSyntax601", "SwiftSyntax602", "SwiftSyntax603", "SwiftParser", "SwiftParserDiagnostics",
     "SwiftOperators", "SwiftSyntaxBuilder", "SwiftDiagnostics", "SwiftBasicFormat", "_SwiftSyntaxCShims",
 ]
@@ -164,6 +163,7 @@ public extension Root {
 
 private let registryCompilerMain = #"""
 import ConstExpr
+import ConstExprEvaluation
 import FixtureModel
 
 @main struct Main {

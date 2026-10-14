@@ -1,4 +1,5 @@
 import ConstExpr
+import ConstExprEvaluation
 import Testing
 
 @Test func compactNumericArraysCompileWithExactTypesAndValues() throws {

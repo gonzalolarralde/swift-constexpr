@@ -7,7 +7,11 @@
 
 /// Concatenates typed fields into bytes, folding known fields at compile time
 /// and retaining dynamic fields as ordinary Swift computation.
-/// Set `requireConstant` to true to reject any runtime fallback.
 @freestanding(expression)
-public macro packetBytes(requireConstant: Bool = false, @PacketBuilder _ body: () -> [UInt8]) -> [UInt8] =
+public macro packetBytes(@PacketBuilder _ body: () -> [UInt8]) -> [UInt8] =
     #externalMacro(module: "PacketKitMacros", type: "PacketBytesMacro")
+
+/// Requires every byte to be computed at compile time; unresolved input is an error.
+@freestanding(expression)
+public macro packetConstBytes(@PacketBuilder _ body: () -> [UInt8]) -> [UInt8] =
+    #externalMacro(module: "PacketKitMacros", type: "PacketConstBytesMacro")

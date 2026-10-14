@@ -1,3 +1,4 @@
+#if !hasFeature(Embedded)
 /// Version used by a source availability domain such as `_PackageDescription`.
 public struct ConstExprAvailabilityVersion: Sendable, Hashable, Comparable {
     public let major: Int
@@ -61,3 +62,4 @@ public extension _ConstExprRuntime {
     typealias AvailabilityVersion = ConstExprAvailabilityVersion
     typealias AvailabilityContext = ConstExprAvailabilityContext
 }
+#endif

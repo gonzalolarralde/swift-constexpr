@@ -1,4 +1,5 @@
 import ConstExpr
+import ConstExprEvaluation
 import Testing
 
 // This intentionally mirrors only the declarative core of PackageDescription.

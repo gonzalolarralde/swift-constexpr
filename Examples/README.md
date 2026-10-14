@@ -50,7 +50,7 @@ The result-builder syntax combines integer fields, UTF-8 strings, and arrays:
 ```swift
 import PacketKit
 
-let bytes = #packetBytes(requireConstant: true) {
+let bytes = #packetConstBytes {
     let payload: [UInt8] = [16, 32]
     Packet.UInt64(0x0102030405060708, order: .bigEndian)
     Packet.UInt8(2)
@@ -69,7 +69,7 @@ embeds a `[UInt8]` directly, and `Packet.UTF8` encodes a string. All produce
 `[UInt8]` components, concatenated by `PacketBuilder`.
 
 [Animation.swift](Consumer/Sources/PacketDemo/Animation.swift) contains the
-complete GIF definition in one `#packetBytes(requireConstant: true)` body.
+complete GIF definition in one `#packetConstBytes` body.
 Each frame is drawn as sixteen binary integer rows, so the actual art remains
 readable in source. `GIF.imageData(rows:)` doubles each source pixel and packs
 the raster into GIF image-data sub-blocks. The first frame lasts 0.8 seconds;
@@ -84,13 +84,13 @@ try Data(animatedGIF).write(to: URL(fileURLWithPath: path), options: .atomic)
 
 ### A build-time guarantee, not an optimizer hint
 
-`requireConstant: true` reports a compiler error if evaluation is unresolved,
+`#packetConstBytes` reports a compiler error if evaluation is unresolved,
 unsupported, or cannot produce Swift source. The GIF is therefore a literal
 byte array even in a debug build; there is no runtime encoder fallback.
 Keep constants inside the macro body or expose them through registered library
 declarations. The macro cannot discover arbitrary outer consumer bindings.
 
-When the flag is omitted (or false), constants and runtime values can mix:
+With `#packetBytes`, constants and runtime values can mix:
 
 ```swift
 func message(opcode: UInt8, payload: [UInt8]) -> [UInt8] {
@@ -129,7 +129,8 @@ overload or constant-chunk type is necessary.
 If nothing folds, or a safe partial expansion cannot be produced, the original
 `Packet.encode { ... }` fallback remains. For example, cleanup does not discard
 an unknown/reference-typed local binding whose lifetime could be significant.
-`requireConstant: true` never accepts a partially dynamic result.
+`#packetConstBytes` never accepts a partially dynamic result. The former
+`requireConstant:` argument is no longer part of either macro's API.
 
 ## The library author's view
 
@@ -168,7 +169,7 @@ ConstExprBuilderMacroSupport.expansion(
     builderType: "PacketBuilder",
     runtimeFunction: "PacketKit.Packet.encode",
     runtimeBuilderType: "PacketKit.PacketBuilder",
-    requireConstantArgumentLabel: "requireConstant"
+    policy: .bestEffort // .requireConstant for #packetConstBytes
 )
 ```
 

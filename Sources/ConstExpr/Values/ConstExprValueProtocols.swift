@@ -1,8 +1,4 @@
-import SwiftParser
-import SwiftParserDiagnostics
-import SwiftSyntax
-import SwiftSyntaxBuilder
-
+#if !hasFeature(Embedded)
 public enum ConstExprValueError: Error, Sendable, Equatable, CustomStringConvertible {
     case typeMismatch(expected: String, actual: String)
     case notRepresentable(String)
@@ -42,32 +38,31 @@ public enum ConstExprValueKind: String, Sendable, Hashable {
     case tuple
 }
 
-/// A type that can emit a Swift expression preserving the value's static type.
-public protocol ConstExprRepresentable {
-    func constExprExpression() throws -> ExprSyntax
-}
-
 /// A type that can be decoded from the evaluator's structural value model.
 public protocol ConstExprValueDecodable {
     static func decodeConstExprValue(_ value: ConstExprValue) throws -> Self
 }
 
-protocol ConstExprOptionalTypeMetadata {
+// These private protocols describe standard-library container metatypes, not
+// their instances. The metatypes are safe to share even for non-Sendable
+// elements. Making that explicit also avoids a Swift 6.4 snapshot region-
+// analysis assertion when an existential metadata getter returns Any.Type.
+protocol ConstExprOptionalTypeMetadata: SendableMetatype {
     static var constExprWrappedType: Any.Type { get }
     static func constExprNilValue() -> ConstExprValue
     static func constExprWrappedValue(from value: Any) -> ConstExprValue?
 }
 
-protocol ConstExprArrayTypeMetadata {
+protocol ConstExprArrayTypeMetadata: SendableMetatype {
     static var constExprElementType: Any.Type { get }
     static func constExprElements(from value: Any) -> [ConstExprValue]?
 }
 
-protocol ConstExprSetTypeMetadata {
+protocol ConstExprSetTypeMetadata: SendableMetatype {
     static var constExprElementType: Any.Type { get }
 }
 
-protocol ConstExprDictionaryTypeMetadata {
+protocol ConstExprDictionaryTypeMetadata: SendableMetatype {
     static var constExprKeyType: Any.Type { get }
     static var constExprValueType: Any.Type { get }
     static func constExprEntries(
@@ -78,7 +73,7 @@ protocol ConstExprDictionaryTypeMetadata {
 /// Standard-library containers whose array-literal construction can be opened
 /// safely for an erased exact metatype. This is intentionally private: user
 /// conformances require an explicit registry adapter before their code runs.
-protocol ConstExprStandardArrayLiteralTypeMetadata {
+protocol ConstExprStandardArrayLiteralTypeMetadata: SendableMetatype {
     static var constExprArrayLiteralElementType: Any.Type { get }
     static func constExprArrayLiteralValue(
         from elements: [ConstExprValue],
@@ -99,10 +94,9 @@ protocol ConstExprStructuralValueDecodable {
 /// outer type is erased to a leaf such as `Any`. Rendering the wrapped value
 /// first is essential for optionals and heterogeneous containers: erasing each
 /// child independently would change the runtime value being boxed.
-struct ConstExprStructurallyErasedValue: ConstExprRepresentable {
-    let value: ConstExprValue
+package struct ConstExprStructurallyErasedValue {
+    package let value: ConstExprValue
 
-    func constExprExpression() throws -> ExprSyntax {
-        try value.constExprExpression()
-    }
+    package init(value: ConstExprValue) { self.value = value }
 }
+#endif

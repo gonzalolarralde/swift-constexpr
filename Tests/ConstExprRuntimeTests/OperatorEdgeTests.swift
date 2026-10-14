@@ -1,5 +1,6 @@
 import Testing
 @testable import ConstExpr
+@testable import ConstExprEvaluation
 
 @Test func standardOperatorsRespectAssociativityParenthesesAndPrecedence() {
     let result = ConstExprRunner(registry: .empty).rewrite(source: """

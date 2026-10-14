@@ -1,22 +1,11 @@
-import ConstExpr
+import ConstExprEvaluation
 import SwiftDiagnostics
 import SwiftSyntax
 import SwiftSyntaxBuilder
 import SwiftSyntaxMacros
 
-/// Opt-in support for library-owned, straight-line result-builder macros.
-///
-/// The library supplies a pure registered builder with `buildExpression`, both
-/// `buildPartialBlock` methods, `buildFinalResult`, and an empty `buildBlock`.
-/// These methods must have the same unambiguous behavior in the host registry
-/// and the consumer. Mixed bodies retain dynamic work in explicit builder calls;
-/// folded components are not passed through `buildExpression` a second time.
-/// `runtimeBuilderType` can name the same builder through its module-qualified
-/// consumer API when its registered spelling is different. Runtime hooks must
-/// be accessible to the consumer; emitted calls use a hygienic local type alias.
-/// This is a deliberately limited transform, not Swift's
-/// general result-builder type checker: control flow, effects, and explicit
-/// signatures are left to the runtime function with its real builder annotation.
+/// Opt-in lowering for registered, pure result builders. The runtime builder
+/// remains authoritative for unsupported syntax and dynamic branch conditions.
 public enum ConstExprBuilderMacroSupport {
     public static func expansion(
         of macro: some FreestandingMacroExpansionSyntax,
@@ -25,63 +14,99 @@ public enum ConstExprBuilderMacroSupport {
         builderType: String,
         runtimeFunction: String,
         runtimeBuilderType: String? = nil,
-        requireConstantArgumentLabel: String? = nil,
+        policy: ConstExprMacroEvaluationPolicy = .bestEffort,
+        supportsBranches: Bool = false,
         options: ConstExprRewriteOptions = .init()
     ) -> ExprSyntax {
+        let prepared = prepare(
+            of: macro, in: context, registry: registry, builderType: builderType,
+            runtimeFunction: runtimeFunction, runtimeBuilderType: runtimeBuilderType,
+            supportsBranches: supportsBranches, options: options
+        )
+        var failureReason = prepared.failureReason
+        if let value = prepared.constantValue {
+            do { return try value.constExprExpression() }
+            catch { failureReason = "the result cannot be represented as Swift source" }
+        }
+        if policy == .requireConstant, let failureReason {
+            diagnoseNonConstant(failureReason, of: macro, in: context)
+            return prepared.fallbackExpression
+        }
+        return prepared.runtimeExpression
+    }
+
+    public static func prepare(
+        of macro: some FreestandingMacroExpansionSyntax,
+        in context: some MacroExpansionContext,
+        registry: ConstExprRegistry,
+        builderType: String,
+        runtimeFunction: String,
+        runtimeBuilderType: String? = nil,
+        supportsBranches: Bool = false,
+        options: ConstExprRewriteOptions = .init()
+    ) -> ConstExprPreparedBuilder {
         let name = macro.macroName.text
         let closure = macro.trailingClosure
             ?? macro.arguments.last?.expression.as(ClosureExprSyntax.self)
         guard let closure else {
             diagnose("#\(name) requires a closure", on: macro, in: context)
-            return ExprSyntax(stringLiteral: "fatalError(\"missing macro closure\")")
+            let failure = ExprSyntax(stringLiteral: "fatalError(\"missing macro closure\")")
+            return .init(runtimeExpression: failure, fallbackExpression: failure)
         }
         let fallback = ExprSyntax(stringLiteral: "\(runtimeFunction) \(closure.trimmedDescription)")
-        var requireConstant = false
-        if let label = requireConstantArgumentLabel,
-           let argument = macro.arguments.first(where: { $0.label?.text == label }) {
-            guard let literal = argument.expression.as(BooleanLiteralExprSyntax.self) else {
-                diagnose("#\(name) requires a literal true or false for '\(label)'", on: macro, in: context)
-                return fallback
-            }
-            requireConstant = literal.literal.tokenKind == .keyword(.true)
-        }
-
-        func fail(_ reason: String) -> ExprSyntax {
-            if requireConstant {
-                diagnose("#\(name) could not produce a compile-time constant: \(reason)", on: macro, in: context)
-            }
-            return fallback
-        }
-        guard let source = loweredSource(closure, builder: builderType, in: context) else {
-            return fail("only synchronous, nonthrowing straight-line expressions and immutable local bindings are supported")
-        }
         let runner = ConstExprRunner(registry: registry, options: options)
+        let source: (text: String, result: String, generatedBindings: Set<String>)?
+        if supportsBranches {
+            source = ConstExprBuilderBranchLowering(
+                builder: builderType, runner: runner, context: context
+            ).lower(closure)
+        } else {
+            source = loweredSource(closure, builder: builderType, in: context)
+        }
+        guard let source else {
+            let forms = supportsBranches
+                ? "expressions, immutable local bindings, and branches with known Boolean conditions"
+                : "straight-line expressions and immutable local bindings"
+            return .init(
+                runtimeExpression: fallback, fallbackExpression: fallback,
+                failureReason: "only synchronous, nonthrowing \(forms) are supported"
+            )
+        }
         let fileName = "<ConstExpr #\(name)>"
         let failureReason: String
         switch runner.evaluateValue(
-            source: source.text,
-            binding: source.result,
-            policy: .certifying,
-            fileName: fileName
+            source: source.text, binding: source.result, policy: .certifying, fileName: fileName
         ) {
         case .success(let value):
-            do { return try value.constExprExpression() }
-            catch { failureReason = "the result cannot be represented as Swift source" }
+            return .init(constantValue: value, runtimeExpression: fallback, fallbackExpression: fallback)
         case .fallback(let failure):
             failureReason = failure.message
         }
-        guard !requireConstant else { return fail(failureReason) }
-
         let rewritten = runner.rewrite(source: source.text, fileName: fileName)
-        guard !rewritten.hasErrors, rewritten.source != source.text else { return fallback }
-        return ConstExprBuilderResidual.expression(
-            source: rewritten.source,
-            result: source.result,
-            generatedBindings: source.generatedBindings,
-            builderType: builderType,
-            runtimeBuilderType: runtimeBuilderType ?? builderType,
-            builderAlias: context.makeUniqueName("constExprBuilderType").text
-        ) ?? fallback
+        let residual: ExprSyntax?
+        if !rewritten.hasErrors, rewritten.source != source.text {
+            residual = ConstExprBuilderResidual.expression(
+                source: rewritten.source, result: source.result,
+                generatedBindings: source.generatedBindings, builderType: builderType,
+                runtimeBuilderType: runtimeBuilderType ?? builderType,
+                builderAlias: context.makeUniqueName("constExprBuilderType").text
+            )
+        } else { residual = nil }
+        return .init(
+            runtimeExpression: residual ?? fallback, fallbackExpression: fallback,
+            failureReason: failureReason
+        )
+    }
+
+    public static func diagnoseNonConstant(
+        _ reason: String,
+        of macro: some FreestandingMacroExpansionSyntax,
+        in context: some MacroExpansionContext
+    ) {
+        diagnose(
+            "#\(macro.macroName.text) could not produce a compile-time constant: \(reason)",
+            on: macro, in: context
+        )
     }
 
     private static func loweredSource(

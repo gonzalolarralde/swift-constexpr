@@ -1,3 +1,4 @@
+#if !hasFeature(Embedded)
 /// A stable source location independent of SwiftSyntax's in-memory tree.
 public struct ConstExprSourceLocation: Sendable, Equatable, Hashable {
     public var fileName: String
@@ -141,3 +142,4 @@ public struct ConstExprRewriteResult: Sendable, Equatable {
         diagnostics.contains(where: \.isError)
     }
 }
+#endif

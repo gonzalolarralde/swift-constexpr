@@ -1,6 +1,7 @@
 import SwiftSyntax
 import Testing
 @testable import ConstExpr
+@testable import ConstExprEvaluation
 
 @Test func valueDictionariesDecodeRenderDeterministicallyAndHandleEmptyLiteral() throws {
     let structural = ConstExprValue.dictionary([

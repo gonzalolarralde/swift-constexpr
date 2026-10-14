@@ -1,4 +1,5 @@
 import ConstExpr
+import ConstExprEvaluation
 import ConstExprMacroSupport
 import SwiftParser
 import SwiftSyntax
@@ -30,7 +31,7 @@ final class ConstExprBuilderMacroSupportTests: XCTestCase {
 
     func testRegisteredHooksAndInterleavedBindings() throws {
         let result = try expand("""
-        #bytes(requireConstant: true) {
+        #constBytes {
             "a"
             let next = "b"
             next
@@ -42,13 +43,13 @@ final class ConstExprBuilderMacroSupportTests: XCTestCase {
     }
 
     func testEmptyBodyCallsEmptyBlockAndFinalResult() throws {
-        let result = try expand("#bytes(requireConstant: true) {}")
+        let result = try expand("#constBytes {}")
         XCTAssertEqual(result.expression, #""[empty]""#)
         XCTAssertTrue(result.diagnostics.isEmpty)
     }
 
     func testParenthesizedClosure() throws {
-        let result = try expand(#"#bytes(requireConstant: true, { "a" })"#)
+        let result = try expand(#"#constBytes({ "a" })"#)
         XCTAssertEqual(result.expression, #""[first:<a>]""#)
         XCTAssertTrue(result.diagnostics.isEmpty)
     }
@@ -84,19 +85,19 @@ final class ConstExprBuilderMacroSupportTests: XCTestCase {
     }
 
     func testStrictMixedBodyStillRejectsResidualWork() throws {
-        let result = try expand(#"#bytes(requireConstant: true) { "a"; runtimeValue; "c" }"#)
+        let result = try expand(#"#constBytes { "a"; runtimeValue; "c" }"#)
         XCTAssertEqual(result.diagnostics.count, 1)
         XCTAssertEqual(result.expression, #"Runtime.encode { "a"; runtimeValue; "c" }"#)
     }
 
     func testUnknownInputInStrictModeIsAnError() throws {
-        let result = try expand("#bytes(requireConstant: true) { runtimeValue }")
+        let result = try expand("#constBytes { runtimeValue }")
         XCTAssertEqual(result.diagnostics.count, 1)
-        XCTAssertTrue(result.diagnostics[0].hasPrefix("#bytes could not produce a compile-time constant:"))
+        XCTAssertTrue(result.diagnostics[0].hasPrefix("#constBytes could not produce a compile-time constant:"))
     }
 
     func testUnresolvedUnusedBindingCannotBeCertified() throws {
-        let result = try expand(#"#bytes(requireConstant: true) { let unused = runtimeValue; "a" }"#)
+        let result = try expand(#"#constBytes { let unused = runtimeValue; "a" }"#)
         XCTAssertEqual(result.diagnostics.count, 1)
         XCTAssertTrue(result.expression.contains("let unused = runtimeValue"))
     }
@@ -118,28 +119,34 @@ final class ConstExprBuilderMacroSupportTests: XCTestCase {
             let result = try expand("#bytes \(body)")
             XCTAssertEqual(result.expression, "Runtime.encode \(body)")
             XCTAssertTrue(result.diagnostics.isEmpty)
-            let strict = try expand("#bytes(requireConstant: true) \(body)")
+            let strict = try expand("#constBytes \(body)")
             XCTAssertEqual(strict.diagnostics, [
-                "#bytes could not produce a compile-time constant: only synchronous, nonthrowing straight-line expressions and immutable local bindings are supported"
+                "#constBytes could not produce a compile-time constant: only synchronous, nonthrowing straight-line expressions and immutable local bindings are supported"
             ])
         }
     }
 
-    func testStrictFlagMustBeLiteral() throws {
-        let result = try expand(#"#bytes(requireConstant: flag) { "a" }"#)
-        XCTAssertEqual(result.diagnostics, ["#bytes requires a literal true or false for 'requireConstant'"])
+    func testPreparedOpaqueValueCanBeConsumedBeforeRendering() throws {
+        let tree = Parser.parse(source: "#bytes { 7 }")
+        let macro = try XCTUnwrap(tree.statements.first?.item.as(MacroExpansionExprSyntax.self))
+        let prepared = ConstExprBuilderMacroSupport.prepare(
+            of: macro, in: BasicMacroExpansionContext(), registry: registry,
+            builderType: "OpaqueBuilder", runtimeFunction: "Runtime.encode"
+        )
+        let value = try XCTUnwrap(prepared.constantValue).require(OpaqueValue.self)
+        XCTAssertEqual(value.value, 7)
     }
 
-    func testExplicitFalseAllowsFallback() throws {
-        let result = try expand("#bytes(requireConstant: false) { runtimeValue }")
+    func testDefaultPolicyAllowsFallback() throws {
+        let result = try expand("#bytes { runtimeValue }")
         XCTAssertTrue(result.diagnostics.isEmpty)
         XCTAssertEqual(result.expression, "Runtime.encode { runtimeValue }")
     }
 
     func testUnrenderableResultIsRejectedWhenRequired() throws {
-        let result = try expand("#bytes(requireConstant: true) { 7 }", builder: "OpaqueBuilder")
+        let result = try expand("#constBytes { 7 }", builder: "OpaqueBuilder")
         XCTAssertEqual(result.diagnostics, [
-            "#bytes could not produce a compile-time constant: the result cannot be represented as Swift source"
+            "#constBytes could not produce a compile-time constant: the result cannot be represented as Swift source"
         ])
     }
 
@@ -158,7 +165,7 @@ final class ConstExprBuilderMacroSupportTests: XCTestCase {
         let result = ConstExprBuilderMacroSupport.expansion(
             of: expression, in: context, registry: registry,
             builderType: builder, runtimeFunction: "Runtime.encode",
-            requireConstantArgumentLabel: "requireConstant"
+            policy: expression.macroName.text == "constBytes" ? .requireConstant : .bestEffort
         )
         return (result.trimmedDescription, context.diagnostics.map(\.message))
     }

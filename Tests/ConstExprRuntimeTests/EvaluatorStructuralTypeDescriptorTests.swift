@@ -1,5 +1,6 @@
 import Testing
 @testable import ConstExpr
+@testable import ConstExprEvaluation
 
 @Test func evaluatorRejectsDynamicDowncastsAndMalformedDescriptorShapes() {
     final class Counter: @unchecked Sendable { var factory = 0; var invalid = 0 }

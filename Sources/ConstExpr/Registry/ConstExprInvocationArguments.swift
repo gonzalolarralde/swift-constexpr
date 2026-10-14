@@ -1,3 +1,4 @@
+#if !hasFeature(Embedded)
 /// Errors produced by label-keyed manual invocation adapters.
 public enum ConstExprInvocationArgumentsError: Error, Sendable, Equatable {
     case metadataCountMismatch(labels: Int, values: Int)
@@ -122,3 +123,4 @@ public extension ConstExprRegistration {
         }
     }
 }
+#endif

@@ -1,6 +1,7 @@
-import SwiftSyntax
+#if !hasFeature(Embedded)
 
-extension ConstExprValue {
+
+package extension ConstExprValue {
     /// Retains a linked declaration's source-static result type after its
     /// implementation has produced a potentially more specific runtime value.
     /// Invalid manual registrations fail here instead of teaching overload
@@ -377,3 +378,4 @@ extension ConstExprValue {
     }
 
 }
+#endif

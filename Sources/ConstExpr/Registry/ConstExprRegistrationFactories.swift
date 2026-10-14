@@ -1,3 +1,4 @@
+#if !hasFeature(Embedded)
 import Foundation
 
 public extension ConstExprRegistration {
@@ -202,3 +203,4 @@ public extension ConstExprRegistration {
 }
 
 /// An immutable collection of generated and manual registrations.
+#endif

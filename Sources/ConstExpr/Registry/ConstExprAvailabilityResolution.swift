@@ -1,10 +1,11 @@
-enum ConstExprRegistrationAvailability: Sendable, Equatable {
+#if !hasFeature(Embedded)
+package enum ConstExprRegistrationAvailability: Sendable, Equatable {
     case available
     case unavailable
     case unknown
 }
 
-extension ConstExprRegistration {
+package extension ConstExprRegistration {
     func availabilityState(
         in context: ConstExprAvailabilityContext?
     ) -> ConstExprRegistrationAvailability {
@@ -46,3 +47,4 @@ extension ConstExprRegistration {
         return .available
     }
 }
+#endif

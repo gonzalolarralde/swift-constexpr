@@ -1,3 +1,4 @@
+#if !hasFeature(Embedded)
 extension ConstExprValue {
     public var kind: ConstExprValueKind {
         switch payload {
@@ -55,13 +56,13 @@ extension ConstExprValue {
         return elements
     }
 
-    var hasBoxedRuntimeValue: Bool { hasRawValue }
+    package var hasBoxedRuntimeValue: Bool { hasRawValue }
 
-    var hasExistentialStaticType: Bool {
+    package var hasExistentialStaticType: Bool {
         String(reflecting: Swift.type(of: staticType)).hasSuffix(".Protocol")
     }
 
-    func provesStaticValueConversion(to target: Any.Type) -> Bool {
+    package func provesStaticValueConversion(to target: Any.Type) -> Bool {
         guard case .opaque(let value) = payload,
               hasRawValue,
               ObjectIdentifier(Swift.type(of: value)) == ObjectIdentifier(staticType)
@@ -157,7 +158,7 @@ extension ConstExprValue {
         )
     }
 
-    func tupleMismatch(expected: String, count: Int) -> ConstExprValueError {
+    package func tupleMismatch(expected: String, count: Int) -> ConstExprValueError {
         guard case .tuple(let elements) = payload else {
             return .typeMismatch(expected: expected, actual: typeName)
         }
@@ -174,7 +175,7 @@ extension ConstExprValue {
         cast(to: type) != nil
     }
 
-    func canDecode(_ type: Any.Type) -> Bool {
+    package func canDecode(_ type: Any.Type) -> Bool {
         if staticType == type { return true }
         if type == Any.self { return true }
         if type == AnyObject.self, staticType is AnyClass { return true }
@@ -194,7 +195,7 @@ extension ConstExprValue {
     /// metatype rather than the boxed object's dynamic class, so a `Base`
     /// expression containing a `Derived` instance never gains an implicit
     /// downcast during overload resolution.
-    func isStaticSubtype(of type: Any.Type) -> Bool {
+    package func isStaticSubtype(of type: Any.Type) -> Bool {
         func opensTarget<T>(_ target: T.Type) -> Bool {
             staticType is T.Type
         }
@@ -246,8 +247,9 @@ extension ConstExprValue {
         }
     }
 
-    static func literal<T>(_ value: T, _ kind: ConstExprLiteralKind) -> Self {
+    package static func literal<T>(_ value: T, _ kind: ConstExprLiteralKind) -> Self {
         classified(value as Any, staticType: T.self, literalKind: kind)
     }
 
 }
+#endif

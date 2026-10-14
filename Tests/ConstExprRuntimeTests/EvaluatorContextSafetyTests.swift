@@ -2,6 +2,7 @@ import Testing
 import SwiftSyntax
 import SwiftSyntaxBuilder
 @testable import ConstExpr
+@testable import ConstExprEvaluation
 
 @Test func evaluatorTreatsEnumCaseExpressionsAsOpaqueTypeContexts() {
     let source = """

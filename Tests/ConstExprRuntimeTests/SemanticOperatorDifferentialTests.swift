@@ -1,5 +1,6 @@
 import Testing
 @testable import ConstExpr
+@testable import ConstExprEvaluation
 
 @Test func unqualifiedOptionalAndArrayShadowsRemainOpaqueToEvaluation() {
     let source = """

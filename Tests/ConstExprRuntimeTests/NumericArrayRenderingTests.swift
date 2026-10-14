@@ -1,6 +1,7 @@
 import SwiftSyntax
 import Testing
 @testable import ConstExpr
+@testable import ConstExprEvaluation
 
 struct ArrayRenderedNumber: ConstExprRepresentable {
     func constExprExpression() throws -> ExprSyntax {

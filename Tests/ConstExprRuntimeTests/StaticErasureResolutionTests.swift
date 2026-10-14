@@ -1,5 +1,6 @@
 import Testing
 @testable import ConstExpr
+@testable import ConstExprEvaluation
 
 private protocol StaticErasedProtocol {}
 private struct StaticErasedConcrete: StaticErasedProtocol {}

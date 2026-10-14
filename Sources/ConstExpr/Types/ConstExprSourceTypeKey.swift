@@ -1,3 +1,4 @@
+#if !hasFeature(Embedded)
 import Foundation
 
 /// A canonical, structural spelling for the subset of Swift types that the
@@ -6,10 +7,10 @@ import Foundation
 /// This is intentionally an implementation detail. Public registrations keep
 /// their authoritative metatypes and descriptors; the key only prevents hot
 /// lookup paths from repeatedly reflecting and reparsing those types.
-indirect enum ConstExprSourceTypeKey: Hashable, Sendable {
-    struct TupleElement: Hashable, Sendable {
-        let label: String?
-        let type: ConstExprSourceTypeKey
+package indirect enum ConstExprSourceTypeKey: Hashable, Sendable {
+    package struct TupleElement: Hashable, Sendable {
+        package let label: String?
+        package let type: ConstExprSourceTypeKey
     }
 
     case leaf(String)
@@ -19,7 +20,7 @@ indirect enum ConstExprSourceTypeKey: Hashable, Sendable {
     case set(Self)
     case tuple([TupleElement])
 
-    init?(sourceName: String) {
+    package init?(sourceName: String) {
         guard let parsed = Self.parse(sourceName) else { return nil }
         self = parsed
     }
@@ -28,14 +29,14 @@ indirect enum ConstExprSourceTypeKey: Hashable, Sendable {
     /// qualification that is present in `String(reflecting:)`; retaining both
     /// forms preserves ambiguity when two registered modules define the same
     /// basename instead of choosing one arbitrarily.
-    var lookupAliases: Set<Self> {
+    package var lookupAliases: Set<Self> {
         var result: Set<Self> = [self]
         result.insert(droppingLeafConstructorModules())
         result.insert(droppingLeafModules())
         return result
     }
 
-    var sourceName: String {
+    package var sourceName: String {
         switch self {
         case .leaf(let name):
             return name
@@ -312,3 +313,4 @@ indirect enum ConstExprSourceTypeKey: Hashable, Sendable {
         "UInt", "UInt8", "UInt16", "UInt32", "UInt64", "Unicode.Scalar", "Void",
     ]
 }
+#endif

@@ -1,5 +1,6 @@
 import Testing
 @testable import ConstExpr
+@testable import ConstExprEvaluation
 
 @Test func labelKeyedInvocationHandlesManySameTypedDefaultsByName() throws {
     let registration = ConstExprRegistration.labelKeyed(

@@ -36,7 +36,7 @@ product with its own types and domain-specific compiler macro:
 ```swift
 import PacketKit
 
-let bytes = #packetBytes(requireConstant: true) {
+let bytes = #packetConstBytes {
     Packet.UInt64(0x0102030405060708, order: .bigEndian)
     Packet.UInt8(2)
     Packet.Bytes([16, 32])
@@ -46,7 +46,7 @@ let bytes = #packetBytes(requireConstant: true) {
 
 The consumer depends only on PacketKit and builds normally with SwiftPM. The
 library author owns the annotations, registry, and a thin compiler plugin that
-delegates to `ConstExprBuilderMacroSupport`. With `requireConstant: true`, an
+delegates to `ConstExprBuilderMacroSupport`. With `#packetConstBytes`, an
 unresolved input is a build error. Otherwise, supported mixed bodies fold their
 known fields and retain dynamic computation; unsupported bodies fall back to
 ordinary Swift. The CLI example generates an entire looping, two-frame GIF
@@ -62,7 +62,7 @@ guide explains the APIs used by library authors and evaluator hosts.
 
 ### Mix constants with runtime fields
 
-Omit `requireConstant: true` when only part of a builder body is known:
+Use `#packetBytes` when only part of a builder body is known:
 
 ```swift
 func message(opcode: UInt8, payload: [UInt8]) -> [UInt8] {
@@ -82,9 +82,12 @@ evaluation, and does not pass folded components through `buildExpression`
 again. If nothing folds or safe partial output is unavailable, the original
 runtime builder is retained. Strict mode rejects every partially dynamic result.
 
-`ConstExprBuilderMacroSupport` supports synchronous, nonthrowing straight-line
-expressions and immutable local bindings, not general result-builder control
-flow. PacketBuilder has no conditional or loop-building hooks. Library authors
+`ConstExprBuilderMacroSupport` supports synchronous, nonthrowing expressions
+and immutable local bindings. Libraries can opt into known Boolean `if`/`else`
+and optional branches with `supportsBranches: true` and registered
+`buildEither`/`buildOptional` hooks. Unknown conditions retain the complete
+runtime builder, preserving lazy selection; loops are not folded.
+PacketBuilder itself has no conditional or loop-building hooks. Library authors
 supply the registered builder hooks and runtime fallback; the
 [PacketKit guide](Examples/README.md#the-library-authors-view) shows the helper
 configuration and the public/model/macro target split. PacketKit re-exports its
@@ -110,9 +113,21 @@ targets: [
 ]
 ```
 
-Most clients only need `import ConstExpr`. A custom
-`ConstExprRepresentable` renderer also returns `SwiftSyntax.ExprSyntax`, so its
-target must directly depend on and import `SwiftSyntax`.
+Annotated models only need `import ConstExpr`. Hosts using `ConstExprRunner`,
+source evaluation/rewriting, or `ConstExprRepresentable` must depend on and
+import the `ConstExprEvaluation` product instead; it re-exports the base module.
+Custom renderers also need a direct `SwiftSyntax` dependency and import.
+
+### Embedded Swift
+
+The same annotated models compile in Embedded mode. `ConstExpr` has no ordinary
+SwiftSyntax dependency: its attached macros select no-op implementations under
+`hasFeature(Embedded)`, and its host-only registry/value support is excluded.
+No Foundation, evaluator, generated registration peers, or dummy registry is
+compiled into the device module. The compiler plugin remains a host executable.
+Keep `ConstExprEvaluation` and `ConstExprMacroSupport` in host-only targets;
+consumer expression macros can still evaluate annotated host models while
+compiling Embedded firmware.
 
 ## Declare what can be evaluated
 
@@ -290,6 +305,8 @@ file. This automates aggregation, not purity inference or implicit registration.
 Create a runner with the registry and give it complete Swift source:
 
 ```swift
+import ConstExprEvaluation
+
 let source = #"""
 let greeting = makeGreeting(name: "Ari")
 let label = Label.doubled(4).text

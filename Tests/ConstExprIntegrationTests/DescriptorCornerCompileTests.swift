@@ -1,4 +1,5 @@
 import ConstExpr
+import ConstExprEvaluation
 import Testing
 
 private protocol DescriptorCornerP: Sendable {}

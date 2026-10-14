@@ -13,6 +13,10 @@ let package = Package(
             targets: ["ConstExpr"]
         ),
         .library(
+            name: "ConstExprEvaluation",
+            targets: ["ConstExprEvaluation"]
+        ),
+        .library(
             name: "ConstExprMacroSupport",
             targets: ["ConstExprMacroSupport"]
         ),
@@ -32,8 +36,11 @@ let package = Package(
         // Targets are the basic building blocks of a package, defining a module or a test suite.
         // Targets can depend on other targets in this package and products from dependencies.
         .target(
-            name: "ConstExpr", dependencies: [
-                "ConstExprMacros",
+            name: "ConstExpr", dependencies: ["ConstExprMacros"]
+        ),
+        .target(
+            name: "ConstExprEvaluation", dependencies: [
+                "ConstExpr",
                 .product(name: "SwiftSyntax", package: "swift-syntax"),
                 .product(name: "SwiftParser", package: "swift-syntax"),
                 .product(name: "SwiftParserDiagnostics", package: "swift-syntax"),
@@ -95,7 +102,7 @@ let package = Package(
         .target(
             name: "ConstExprMacroSupport",
             dependencies: [
-                "ConstExpr",
+                "ConstExprEvaluation",
                 .product(name: "SwiftDiagnostics", package: "swift-syntax"),
                 .product(name: "SwiftParser", package: "swift-syntax"),
                 .product(name: "SwiftSyntax", package: "swift-syntax"),
@@ -135,22 +142,23 @@ let package = Package(
         .target(
             name: "ConstExprPackageInterfaceConsumerFixture",
             dependencies: [
-                "ConstExpr",
+                "ConstExprEvaluation",
                 "ConstExprPackageInterfaceFixture",
             ]
         ),
         .executableTarget(
             name: "ConstExprExampleCLI",
-            dependencies: ["ConstExpr", "ConstExprExampleRegistry"]
+            dependencies: ["ConstExprEvaluation", "ConstExprExampleRegistry"]
         ),
         .testTarget(
             name: "ConstExprTests",
-            dependencies: ["ConstExpr"]
+            dependencies: ["ConstExpr", "ConstExprEvaluation"]
         ),
         .testTarget(
             name: "ConstExprRuntimeTests",
             dependencies: [
                 "ConstExpr",
+                "ConstExprEvaluation",
                 .product(name: "SwiftSyntax", package: "swift-syntax"),
                 .product(name: "SwiftSyntaxBuilder", package: "swift-syntax"),
             ]
@@ -174,6 +182,7 @@ let package = Package(
             name: "ConstExprMacroSupportTests",
             dependencies: [
                 "ConstExpr",
+                "ConstExprEvaluation",
                 "ConstExprMacroSupport",
                 .product(name: "SwiftParser", package: "swift-syntax"),
                 .product(name: "SwiftSyntax", package: "swift-syntax"),
@@ -184,6 +193,7 @@ let package = Package(
             name: "ConstExprIntegrationTests",
             dependencies: [
                 "ConstExpr",
+                "ConstExprEvaluation",
                 "ConstExprRegistryGeneration",
                 "ConstExprExampleDefinitions",
                 "ConstExprExampleRegistry",

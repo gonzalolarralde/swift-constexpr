@@ -2,11 +2,20 @@
 
 ConstExpr is a linked source evaluator/rewriter, not a Swift interpreter and not
 a compiler optimization pass. The host process imports both the
-`ConstExpr` runtime and the library containing the declarations it is allowed to
+`ConstExprEvaluation` runtime and the library containing the declarations it is allowed to
 execute. Macro-generated adapters call those already-compiled declarations. The
 package requires Swift 6.3 or newer and currently deploys to macOS 11 or newer.
 
 ## Components
+
+`ConstExpr` holds syntax-free annotations, values, decoding, and registration
+contracts. `ConstExprEvaluation` re-exports it and owns parsing, evaluation,
+rewriting, instrumentation, and SwiftSyntax-based rendering. In Embedded mode,
+the base module exposes only no-op attached annotations and their access option;
+host runtime contracts and Foundation imports are excluded. SwiftPM reaches
+SwiftSyntax only through the host macro edge, not an ordinary device dependency.
+Expression-macro plugins still compile their annotated model normally on the
+host, where the real registration implementations are active.
 
 The package has four layers:
 
@@ -87,7 +96,7 @@ cycle between the public target and its compiler plugin. Consumers import only
 PacketKit, with no direct ConstExpr dependency or registry setup. ConstExpr
 remains in the transitive dependency graph.
 
-`ConstExprBuilderMacroSupport` is an opt-in, straight-line builder adapter. It
+`ConstExprBuilderMacroSupport` is an opt-in builder adapter. By default it
 lowers expressions and immutable local bindings to the library's registered
 `buildExpression`, `buildPartialBlock`, and `buildFinalResult` methods (and
 `buildBlock` for an empty body), then uses certifying terminal evaluation. As in
@@ -107,11 +116,21 @@ live and became unused through pure constant folding. User initializers still
 execute; now-unused scalar/value bindings can discard their names, but unknown
 or reference-typed bindings conservatively retain the whole runtime fallback
 to avoid changing lifetimes. Bodies that do not rewrite also keep that fallback.
-This is not a general result-builder type checker: control flow, explicit
+With `supportsBranches: true`, known Boolean selections are flattened using
+registered `buildEither` and `buildOptional` hooks. Branch-local bindings are
+hygienically renamed; unselected branches are never evaluated. The injection
+tree is checked against native Swift result builders, including uneven else-if
+chains. An unknown condition preserves the original runtime closure rather than
+evaluating either uncertain branch. Loops and pattern conditions are unsupported.
+
+This is not a general result-builder type checker: unsupported control flow, explicit
 closure signatures, `try`/`await`, and other unsupported syntax preserve the
-whole closure through the supplied builder-annotated runtime function. An
-optional literal `requireConstant` argument still makes every partial result,
-fallback, or unrenderable output a compiler error. PacketKit uses that mode to
+whole closure through the supplied builder-annotated runtime function. The
+`.requireConstant` policy makes every partial result, fallback, or unrenderable
+output a compiler error; `.bestEffort` allows runtime work. The `prepare` API
+exposes the constant linked value before rendering, plus residual/fallback
+expressions, so domain macros can validate and materialize their own output.
+PacketKit exposes the policies as `#packetConstBytes` and `#packetBytes`, using strict mode to
 generate a complete animated GIF; the CLI only writes literal bytes at runtime.
 
 ## Declaration collection

@@ -6,7 +6,7 @@ import PacketKit
 import Testing
 
 @Test func allFieldWidthsAndByteOrders() {
-    let bytes = #packetBytes(requireConstant: true) {
+    let bytes = #packetConstBytes {
         Packet.UInt8(0xFF)
         Packet.UInt16(0x1234, order: .littleEndian)
         Packet.UInt16(0x1234, order: .bigEndian)
@@ -28,12 +28,12 @@ import Testing
 }
 
 @Test func emptyBuilder() {
-    let bytes = #packetBytes(requireConstant: true) {}
+    let bytes = #packetConstBytes {}
     #expect(bytes.isEmpty)
 }
 
 @Test func maximumUnsignedValuesAreNotNarrowedToSignedIntegers() {
-    let bytes = #packetBytes(requireConstant: true) {
+    let bytes = #packetConstBytes {
         Packet.UInt8(0xFF)
         Packet.UInt16(0xFFFF, order: .littleEndian)
         Packet.UInt32(0xFFFFFFFF, order: .littleEndian)

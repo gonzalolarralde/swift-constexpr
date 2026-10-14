@@ -8,5 +8,7 @@ struct ConstExprPlugin: CompilerPlugin {
         ConstExprMembersMacro.self,
         ConstExprIgnoredMacro.self,
         ConstExprRegistryMacro.self,
+        ConstExprNoOpPeerMacro.self,
+        ConstExprNoOpMemberMacro.self,
     ]
 }

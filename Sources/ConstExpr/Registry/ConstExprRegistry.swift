@@ -1,3 +1,4 @@
+#if !hasFeature(Embedded)
 import Foundation
 
 private final class ConstExprRegistryStorage: @unchecked Sendable {
@@ -24,7 +25,7 @@ public struct ConstExprRegistry: Sendable {
     private let storage: ConstExprRegistryStorage
 
     public var registrations: [ConstExprRegistration] { storage.registrations }
-    var index: ConstExprRegistryIndex { storage.index }
+    package var index: ConstExprRegistryIndex { storage.index }
 
     public init(registrations: [ConstExprRegistration] = []) {
         self.storage = ConstExprRegistryStorage(registrations: registrations)
@@ -76,3 +77,4 @@ public struct ConstExprRegistry: Sendable {
         !validationDiagnostics.contains { $0.severity == .error }
     }
 }
+#endif

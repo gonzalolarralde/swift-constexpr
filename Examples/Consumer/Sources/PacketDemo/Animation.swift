@@ -2,7 +2,7 @@ import PacketKit
 
 // This MUST become a byte-array literal, even in a debug build. Any unknown
 // value, unsupported syntax, or encoding failure produces a compiler error.
-let animatedGIF: [UInt8] = #packetBytes(requireConstant: true) {
+let animatedGIF: [UInt8] = #packetConstBytes {
     let size: UInt16 = 32
     let palette: [UInt8] = [0x14, 0x1B, 0x2D, 0x69, 0xF0, 0xAE] // midnight / mint
 

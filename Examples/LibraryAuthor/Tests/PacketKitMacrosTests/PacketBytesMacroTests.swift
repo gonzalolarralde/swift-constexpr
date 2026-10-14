@@ -8,12 +8,15 @@ import SwiftSyntaxMacrosTestSupport
 import XCTest
 
 final class PacketBytesMacroTests: XCTestCase {
-    private let macros: [String: Macro.Type] = ["packetBytes": PacketBytesMacro.self]
+    private let macros: [String: Macro.Type] = [
+        "packetBytes": PacketBytesMacro.self,
+        "packetConstBytes": PacketConstBytesMacro.self,
+    ]
 
     func testTypedFieldsAndArrayExpandToLiteralBytes() {
         assertMacroExpansion(
             """
-            let bytes = #packetBytes(requireConstant: true) {
+            let bytes = #packetConstBytes {
                 let payload: [UInt8] = [3, 4]
                 Packet.UInt16(0x1234, order: .littleEndian)
                 Packet.UInt8(2)
@@ -81,13 +84,13 @@ final class PacketBytesMacroTests: XCTestCase {
 
     func testStrictMixedBodyReportsAnError() {
         let (_, context) = expand("""
-        let bytes = #packetBytes(requireConstant: true) {
+        let bytes = #packetConstBytes {
             Packet.UTF8("PKT")
             Packet.UInt8(opcode)
         }
         """)
         XCTAssertEqual(context.diagnostics.count, 1)
-        XCTAssertTrue(context.diagnostics[0].message.hasPrefix("#packetBytes could not produce a compile-time constant:"))
+        XCTAssertTrue(context.diagnostics[0].message.hasPrefix("#packetConstBytes could not produce a compile-time constant:"))
     }
 
     func testConsumerHelperNeedsNoRegistrationAtRuntime() {

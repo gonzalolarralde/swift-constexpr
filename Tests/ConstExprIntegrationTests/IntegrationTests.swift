@@ -1,4 +1,5 @@
 import ConstExpr
+import ConstExprEvaluation
 import ConstExprExampleDefinitions
 import ConstExprExampleRegistry
 import Testing
