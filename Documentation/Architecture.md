@@ -53,6 +53,28 @@ algorithm during macro expansion. Expression macros cannot discover arbitrary
 consumer-module declarations, so that explicit companion target is the semantic
 lookup boundary.
 
+The [PacketKit example](../Examples/README.md) packages that companion behind
+one public library product. A shared model target supplies the annotated types
+to both the public library and the host-side macro. The public target exposes
+the types through aliases and declares its own `#packetBytes` macro; the macro
+target supplies a registry to `ConstExprBuilderMacroSupport`. This avoids a
+cycle between the public target and its compiler plugin. Consumers import only
+PacketKit, with no direct ConstExpr dependency or registry setup. ConstExpr
+remains in the transitive dependency graph.
+
+`ConstExprBuilderMacroSupport` is an opt-in, straight-line builder adapter. It
+lowers expressions and immutable local bindings to the library's registered
+`buildExpression`, `buildPartialBlock`, and `buildFinalResult` methods (and
+`buildBlock` for an empty body), then uses certifying terminal evaluation. As in
+SE-0348, all expressions precede partial-block accumulation. The library is
+responsible for supplying pure, unambiguous hooks equivalent to its runtime
+builder. This is not a general result-builder type checker: control flow,
+explicit closure signatures, `try`/`await`, and other unsupported syntax preserve the whole
+closure through a supplied builder-annotated runtime function. An optional
+literal `requireConstant` argument makes fallback or unrenderable output a
+compiler error. PacketKit uses that mode to generate a complete animated GIF;
+the CLI only writes a literal byte array at runtime.
+
 ## Declaration collection
 
 Nominal annotations are catch-all by default. There is no include list to keep in

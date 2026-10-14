@@ -27,6 +27,38 @@ original or rewritten program.
 
 The package requires Swift 6.3, swift-syntax 603.0.2, and macOS 11 or newer.
 
+## Ship a library-owned macro
+
+A library can use ConstExpr internally without asking its consumers to adopt
+ConstExpr's API. The [PacketKit example](Examples/README.md) exposes one library
+product with its own types and domain-specific compiler macro:
+
+```swift
+import PacketKit
+
+let bytes = #packetBytes(requireConstant: true) {
+    Packet.UInt64(0x0102030405060708, order: .bigEndian)
+    Packet.UInt8(2)
+    Packet.Bytes([16, 32])
+}
+// Generates [1, 2, 3, 4, 5, 6, 7, 8, 2, 16, 32] at compile time.
+```
+
+The consumer depends only on PacketKit and builds normally with SwiftPM. The
+library author owns the annotations, registry, and a thin compiler plugin that
+delegates to `ConstExprBuilderMacroSupport`. With `requireConstant: true`, an
+unresolved input is a build error; otherwise the whole builder falls back to
+ordinary Swift. The CLI example generates an entire looping, two-frame GIF
+during macro expansion and only writes those constant bytes at runtime:
+
+```sh
+swift run --package-path Examples/Consumer PacketDemo /tmp/packet.gif
+```
+
+ConstExpr remains a transitive dependency, but the consumer needs no direct
+ConstExpr dependency, import, registry, or custom build step. The rest of this
+guide explains the APIs used by library authors and evaluator hosts.
+
 ## Add ConstExpr to a package
 
 For local development, add the checkout and the `ConstExpr` product:
@@ -461,8 +493,8 @@ boundary—is documented in [Architecture](Documentation/Architecture.md).
   classes, subscripts, and opaque chains.
 - [`Sources/ConstExprExampleRegistry`](Sources/ConstExprExampleRegistry/Registry.swift)
   aggregates that API surface.
-- [`Examples`](Examples/README.md) demonstrates a separate-package author and
-  consumer workflow.
+- [`Examples`](Examples/README.md) demonstrates PacketKit's library-owned
+  compiler macro and a separate consumer that imports only PacketKit.
 - [`Documentation/PackageManifests.md`](Documentation/PackageManifests.md)
   discusses declarative manifest evaluation and host integration.
 - [`Scripts/PackageIndex`](Scripts/PackageIndex/README.md) contains the resumable
