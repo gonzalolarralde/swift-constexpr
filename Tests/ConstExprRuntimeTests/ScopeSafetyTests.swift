@@ -1,5 +1,6 @@
 import Testing
 @testable import ConstExpr
+@testable import ConstExprEvaluation
 
 private let scopeRegistry = ConstExprRegistry(registrations: [
     ConstExprRegistration(

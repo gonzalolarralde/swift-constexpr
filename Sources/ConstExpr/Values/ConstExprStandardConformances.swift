@@ -1,107 +1,62 @@
-import SwiftSyntax
-import SwiftSyntaxBuilder
-
-extension Int: ConstExprRepresentable, ConstExprValueDecodable {
-    public func constExprExpression() throws -> ExprSyntax { integerExpression(self, type: Self.self) }
-    public static func decodeConstExprValue(_ value: ConstExprValue) throws -> Self { try value.requireScalar(Self.self) }
-}
-extension Int8: ConstExprRepresentable, ConstExprValueDecodable {
-    public func constExprExpression() throws -> ExprSyntax { integerExpression(self, type: Self.self) }
-    public static func decodeConstExprValue(_ value: ConstExprValue) throws -> Self { try value.requireScalar(Self.self) }
-}
-extension Int16: ConstExprRepresentable, ConstExprValueDecodable {
-    public func constExprExpression() throws -> ExprSyntax { integerExpression(self, type: Self.self) }
-    public static func decodeConstExprValue(_ value: ConstExprValue) throws -> Self { try value.requireScalar(Self.self) }
-}
-extension Int32: ConstExprRepresentable, ConstExprValueDecodable {
-    public func constExprExpression() throws -> ExprSyntax { integerExpression(self, type: Self.self) }
-    public static func decodeConstExprValue(_ value: ConstExprValue) throws -> Self { try value.requireScalar(Self.self) }
-}
-extension Int64: ConstExprRepresentable, ConstExprValueDecodable {
-    public func constExprExpression() throws -> ExprSyntax { integerExpression(self, type: Self.self) }
-    public static func decodeConstExprValue(_ value: ConstExprValue) throws -> Self { try value.requireScalar(Self.self) }
-}
-extension UInt: ConstExprRepresentable, ConstExprValueDecodable {
-    public func constExprExpression() throws -> ExprSyntax { integerExpression(self, type: Self.self) }
-    public static func decodeConstExprValue(_ value: ConstExprValue) throws -> Self { try value.requireScalar(Self.self) }
-}
-extension UInt8: ConstExprRepresentable, ConstExprValueDecodable {
-    public func constExprExpression() throws -> ExprSyntax { integerExpression(self, type: Self.self) }
-    public static func decodeConstExprValue(_ value: ConstExprValue) throws -> Self { try value.requireScalar(Self.self) }
-}
-extension UInt16: ConstExprRepresentable, ConstExprValueDecodable {
-    public func constExprExpression() throws -> ExprSyntax { integerExpression(self, type: Self.self) }
-    public static func decodeConstExprValue(_ value: ConstExprValue) throws -> Self { try value.requireScalar(Self.self) }
-}
-extension UInt32: ConstExprRepresentable, ConstExprValueDecodable {
-    public func constExprExpression() throws -> ExprSyntax { integerExpression(self, type: Self.self) }
-    public static func decodeConstExprValue(_ value: ConstExprValue) throws -> Self { try value.requireScalar(Self.self) }
-}
-extension UInt64: ConstExprRepresentable, ConstExprValueDecodable {
-    public func constExprExpression() throws -> ExprSyntax { integerExpression(self, type: Self.self) }
+#if !hasFeature(Embedded)
+extension Int: ConstExprValueDecodable {
     public static func decodeConstExprValue(_ value: ConstExprValue) throws -> Self { try value.requireScalar(Self.self) }
 }
 
-extension Bool: ConstExprRepresentable, ConstExprValueDecodable {
-    public func constExprExpression() throws -> ExprSyntax {
-        ExprSyntax(stringLiteral: self ? "true" : "false")
-    }
+extension Int8: ConstExprValueDecodable {
     public static func decodeConstExprValue(_ value: ConstExprValue) throws -> Self { try value.requireScalar(Self.self) }
 }
 
-extension Double: ConstExprRepresentable, ConstExprValueDecodable {
-    public func constExprExpression() throws -> ExprSyntax {
-        if isNaN {
-            return ExprSyntax(stringLiteral: "Swift.Double(bitPattern: \(bitPattern))")
-        }
-        if self == .infinity { return ExprSyntax(stringLiteral: "Swift.Double.infinity") }
-        if self == -.infinity { return ExprSyntax(stringLiteral: "-Swift.Double.infinity") }
-        return ExprSyntax(stringLiteral: String(self))
-    }
+extension Int16: ConstExprValueDecodable {
     public static func decodeConstExprValue(_ value: ConstExprValue) throws -> Self { try value.requireScalar(Self.self) }
 }
 
-extension Float: ConstExprRepresentable, ConstExprValueDecodable {
-    public func constExprExpression() throws -> ExprSyntax {
-        let body: String
-        if isNaN { body = "Swift.Float(bitPattern: \(bitPattern))" }
-        else if self == .infinity { body = "Swift.Float.infinity" }
-        else if self == -.infinity { body = "-Swift.Float.infinity" }
-        else { body = String(self) }
-        if body.hasPrefix("Swift.") || body.hasPrefix("-Swift.") {
-            return ExprSyntax(stringLiteral: body)
-        }
-        return ExprSyntax(stringLiteral: "(\(body)) as Swift.Float")
-    }
+extension Int32: ConstExprValueDecodable {
     public static func decodeConstExprValue(_ value: ConstExprValue) throws -> Self { try value.requireScalar(Self.self) }
 }
 
-extension String: ConstExprRepresentable, ConstExprValueDecodable {
-    public func constExprExpression() throws -> ExprSyntax {
-        ExprSyntax(stringLiteral: escapedSwiftString(self))
-    }
+extension Int64: ConstExprValueDecodable {
     public static func decodeConstExprValue(_ value: ConstExprValue) throws -> Self { try value.requireScalar(Self.self) }
 }
 
-extension Character: ConstExprRepresentable, ConstExprValueDecodable {
-    public func constExprExpression() throws -> ExprSyntax {
-        ExprSyntax(stringLiteral: "(\(escapedSwiftString(String(self)))) as Swift.Character")
-    }
+extension UInt: ConstExprValueDecodable {
     public static func decodeConstExprValue(_ value: ConstExprValue) throws -> Self { try value.requireScalar(Self.self) }
 }
 
-extension Optional: ConstExprRepresentable where Wrapped: ConstExprRepresentable {
-    public func constExprExpression() throws -> ExprSyntax {
-        let typeName = String(reflecting: Self.self)
-        switch self {
-        case .none:
-            return ExprSyntax(stringLiteral: "nil as \(typeName)")
-        case .some(let value):
-            return ExprSyntax(
-                stringLiteral: "(\(try value.constExprExpression().description)) as \(typeName)"
-            )
-        }
-    }
+extension UInt8: ConstExprValueDecodable {
+    public static func decodeConstExprValue(_ value: ConstExprValue) throws -> Self { try value.requireScalar(Self.self) }
+}
+
+extension UInt16: ConstExprValueDecodable {
+    public static func decodeConstExprValue(_ value: ConstExprValue) throws -> Self { try value.requireScalar(Self.self) }
+}
+
+extension UInt32: ConstExprValueDecodable {
+    public static func decodeConstExprValue(_ value: ConstExprValue) throws -> Self { try value.requireScalar(Self.self) }
+}
+
+extension UInt64: ConstExprValueDecodable {
+    public static func decodeConstExprValue(_ value: ConstExprValue) throws -> Self { try value.requireScalar(Self.self) }
+}
+
+extension Bool: ConstExprValueDecodable {
+    public static func decodeConstExprValue(_ value: ConstExprValue) throws -> Self { try value.requireScalar(Self.self) }
+}
+
+extension Double: ConstExprValueDecodable {
+    public static func decodeConstExprValue(_ value: ConstExprValue) throws -> Self { try value.requireScalar(Self.self) }
+}
+
+extension Float: ConstExprValueDecodable {
+    public static func decodeConstExprValue(_ value: ConstExprValue) throws -> Self { try value.requireScalar(Self.self) }
+}
+
+extension String: ConstExprValueDecodable {
+    public static func decodeConstExprValue(_ value: ConstExprValue) throws -> Self { try value.requireScalar(Self.self) }
+}
+
+extension Character: ConstExprValueDecodable {
+    public static func decodeConstExprValue(_ value: ConstExprValue) throws -> Self { try value.requireScalar(Self.self) }
 }
 
 extension Optional: ConstExprOptionalTypeMetadata {
@@ -121,6 +76,7 @@ extension Optional: ConstExprOptionalTypeMetadata {
     }
 }
 
+
 extension Optional: ConstExprValueDecodable where Wrapped: ConstExprValueDecodable {
     public static func decodeConstExprValue(_ value: ConstExprValue) throws -> Self {
         guard let optional = value.optionalPayload else {
@@ -135,6 +91,7 @@ extension Optional: ConstExprValueDecodable where Wrapped: ConstExprValueDecodab
     }
 }
 
+
 extension Optional: ConstExprStructuralValueDecodable {
     static func decodeStructuralConstExprValue(
         _ value: ConstExprValue
@@ -147,14 +104,6 @@ extension Optional: ConstExprStructuralValueDecodable {
     }
 }
 
-extension Array: ConstExprRepresentable where Element: ConstExprRepresentable {
-    public func constExprExpression() throws -> ExprSyntax {
-        let body = try map { try $0.constExprExpression().description }.joined(separator: ", ")
-        return ExprSyntax(
-            stringLiteral: "([\(body)]) as \(String(reflecting: Self.self))"
-        )
-    }
-}
 
 extension Array: ConstExprArrayTypeMetadata {
     static var constExprElementType: Any.Type { Element.self }
@@ -166,6 +115,7 @@ extension Array: ConstExprArrayTypeMetadata {
         }
     }
 }
+
 
 extension Array: ConstExprStandardArrayLiteralTypeMetadata {
     static var constExprArrayLiteralElementType: Any.Type {
@@ -185,6 +135,7 @@ extension Array: ConstExprStandardArrayLiteralTypeMetadata {
     }
 }
 
+
 extension Array: ConstExprValueDecodable where Element: ConstExprValueDecodable {
     public static func decodeConstExprValue(_ value: ConstExprValue) throws -> Self {
         if case .opaque(let opaque) = value.payload, let exact = opaque as? Self { return exact }
@@ -197,6 +148,7 @@ extension Array: ConstExprValueDecodable where Element: ConstExprValueDecodable 
         return try elements.map(Element.decodeConstExprValue)
     }
 }
+
 
 extension Array: ConstExprStructuralValueDecodable {
     static func decodeStructuralConstExprValue(
@@ -215,6 +167,7 @@ extension Array: ConstExprStructuralValueDecodable {
     }
 }
 
+
 extension Set: ConstExprStandardArrayLiteralTypeMetadata {
     static var constExprArrayLiteralElementType: Any.Type {
         Element.self
@@ -232,33 +185,11 @@ extension Set: ConstExprStandardArrayLiteralTypeMetadata {
     }
 }
 
+
 extension Set: ConstExprSetTypeMetadata {
     static var constExprElementType: Any.Type { Element.self }
 }
 
-extension Set: ConstExprRepresentable where Element: ConstExprRepresentable {
-    public func constExprExpression() throws -> ExprSyntax {
-        let elements = try map { try $0.constExprExpression().description }.sorted()
-        return ExprSyntax(
-            stringLiteral: "Swift.Set([\(elements.joined(separator: ", "))]) as \(String(reflecting: Self.self))"
-        )
-    }
-}
-
-extension Dictionary: ConstExprRepresentable
-where Key: ConstExprRepresentable, Value: ConstExprRepresentable {
-    public func constExprExpression() throws -> ExprSyntax {
-        var entries = try map {
-            (try $0.key.constExprExpression().description, try $0.value.constExprExpression().description)
-        }
-        entries.sort { $0.0 == $1.0 ? $0.1 < $1.1 : $0.0 < $1.0 }
-        let body = entries.map { "\($0.0): \($0.1)" }.joined(separator: ", ")
-        let literal = entries.isEmpty ? "[:]" : "[\(body)]"
-        return ExprSyntax(
-            stringLiteral: "(\(literal)) as \(String(reflecting: Self.self))"
-        )
-    }
-}
 
 extension Dictionary: ConstExprDictionaryTypeMetadata {
     static var constExprKeyType: Any.Type { Key.self }
@@ -277,6 +208,7 @@ extension Dictionary: ConstExprDictionaryTypeMetadata {
     }
 }
 
+
 extension Dictionary: ConstExprValueDecodable
 where Key: ConstExprValueDecodable & Hashable, Value: ConstExprValueDecodable {
     public static func decodeConstExprValue(_ value: ConstExprValue) throws -> Self {
@@ -294,7 +226,6 @@ where Key: ConstExprValueDecodable & Hashable, Value: ConstExprValueDecodable {
         return result
     }
 }
-
 extension Dictionary: ConstExprStructuralValueDecodable {
     static func decodeStructuralConstExprValue(
         _ value: ConstExprValue
@@ -315,3 +246,4 @@ extension Dictionary: ConstExprStructuralValueDecodable {
         return result
     }
 }
+#endif

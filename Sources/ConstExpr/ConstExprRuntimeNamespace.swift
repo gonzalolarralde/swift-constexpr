@@ -1,3 +1,4 @@
+#if !hasFeature(Embedded)
 /// Reserved namespace used by macro-generated source.
 ///
 /// Keeping generated references behind one deliberately uncommon name avoids
@@ -82,3 +83,4 @@ public extension _ConstExprRuntime {
         registrations(fromGeneratedPeer: Provider.constExprRegistrations)
     }
 }
+#endif

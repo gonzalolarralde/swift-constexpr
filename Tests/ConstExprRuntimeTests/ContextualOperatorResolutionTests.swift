@@ -1,5 +1,6 @@
 import Testing
 @testable import ConstExpr
+@testable import ConstExprEvaluation
 
 private struct ContextualOperatorVersion: Comparable, ExpressibleByStringLiteral, Sendable {
     let value: String

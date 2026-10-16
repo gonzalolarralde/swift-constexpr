@@ -3,6 +3,7 @@ import Testing
 
 private let defaultAdapterLinkedModules = [
     "ConstExpr",
+    "ConstExprEvaluation",
     "SwiftSyntax",
     "SwiftSyntax509",
     "SwiftSyntax510",
@@ -47,10 +48,7 @@ private func compileAndRunDefaultAdapterFixture() throws -> (
     let build = try activeSwiftPMBuildDirectory()
     let shims = try swiftSyntaxShims(startingAt: build)
     let objects = try defaultAdapterLinkedModules.flatMap { module in
-        try FileManager.default.contentsOfDirectory(
-            at: build.appendingPathComponent("\(module).build"),
-            includingPropertiesForKeys: nil
-        ).filter { $0.pathExtension == "o" }.sorted { $0.path < $1.path }
+        try compilerFixtureObjects(module: module, build: build)
     }
     let compiler = Process()
     let compilerError = Pipe()
@@ -96,6 +94,7 @@ private func compileAndRunDefaultAdapterFixture() throws -> (
 
 private let defaultAdapterFixtureSource = """
 import ConstExpr
+import ConstExprEvaluation
 
 enum Defaults { static let value = 0 }
 

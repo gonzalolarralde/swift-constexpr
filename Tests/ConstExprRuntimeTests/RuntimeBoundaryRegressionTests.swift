@@ -2,6 +2,7 @@ import SwiftSyntax
 import SwiftSyntaxBuilder
 import Testing
 @testable import ConstExpr
+@testable import ConstExprEvaluation
 
 private class ManualTupleBase {}
 private final class ManualTupleDerived: ManualTupleBase {}

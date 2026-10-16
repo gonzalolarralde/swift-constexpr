@@ -1,5 +1,6 @@
 import Testing
 @testable import ConstExpr
+@testable import ConstExprEvaluation
 
 private class StaticRankBase {}
 private final class StaticRankDerived: StaticRankBase {}

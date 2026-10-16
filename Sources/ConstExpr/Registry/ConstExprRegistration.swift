@@ -1,3 +1,4 @@
+#if !hasFeature(Embedded)
 /// The source-level operation represented by a generated or manual adapter.
 public enum ConstExprRegistrationKind: String, Sendable, Hashable {
     case function
@@ -27,7 +28,7 @@ public enum ConstExprOperatorAssociativity: String, Sendable, Hashable {
 /// array-literal conformance. Keeping this check in the runtime prevents a
 /// malformed manual registration from teaching the evaluator conversions that
 /// Swift source does not have.
-func constExprArrayLiteralElementType(of type: Any.Type) -> Any.Type? {
+package func constExprArrayLiteralElementType(of type: Any.Type) -> Any.Type? {
     guard let conforming = type as? any ExpressibleByArrayLiteral.Type else {
         return nil
     }
@@ -80,7 +81,7 @@ public struct ConstExprRegistration: Sendable {
     public let precedenceGroup: String?
     public let associativity: ConstExprOperatorAssociativity?
 
-    let invocation: Invocation
+    package let invocation: Invocation
 
     public init(
         moduleName: String? = nil,
@@ -157,7 +158,7 @@ public struct ConstExprRegistration: Sendable {
         )
     }
 
-    func invoke(_ receiver: ConstExprValue?, _ arguments: [ConstExprValue]) throws -> ConstExprValue {
+    package func invoke(_ receiver: ConstExprValue?, _ arguments: [ConstExprValue]) throws -> ConstExprValue {
         try invoke(receiver: receiver, arguments: arguments.map(Optional.some))
     }
 
@@ -403,3 +404,4 @@ public struct ConstExprRegistration: Sendable {
         return "\(kind.rawValue):\(qualifiedName)(\(parameters))->\(String(reflecting: resultType))"
     }
 }
+#endif

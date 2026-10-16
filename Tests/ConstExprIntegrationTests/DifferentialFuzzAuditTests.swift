@@ -1,4 +1,5 @@
 import ConstExpr
+import ConstExprEvaluation
 import Testing
 
 private final class DifferentialFuzzCounter: @unchecked Sendable {

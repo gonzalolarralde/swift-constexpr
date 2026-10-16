@@ -1,5 +1,6 @@
 import Testing
 @testable import ConstExpr
+@testable import ConstExprEvaluation
 
 class DifferentialBase {}
 final class DifferentialDerived: DifferentialBase {}

@@ -1,3 +1,4 @@
+#if !hasFeature(Embedded)
 import Foundation
 
 /// Source-static type information used by the evaluator when an erased
@@ -73,7 +74,7 @@ public indirect enum ConstExprStaticTypeDescriptor: Sendable {
         }
     }
 
-    var sourceName: String? {
+    package var sourceName: String? {
         switch self {
         case .leaf(_, let sourceName, _, _, _):
             return sourceName
@@ -100,7 +101,7 @@ public indirect enum ConstExprStaticTypeDescriptor: Sendable {
         }
     }
 
-    static func conversionRank(
+    package static func conversionRank(
         from source: Self,
         sourceType: Any.Type? = nil,
         to target: Self,
@@ -240,7 +241,7 @@ public indirect enum ConstExprStaticTypeDescriptor: Sendable {
     /// exact same source type, retain it. An explicit macro descriptor has a
     /// witness predicate and therefore remains authoritative, including for a
     /// deliberately non-class-bound protocol.
-    static func fillingMissingMetadata(from source: Self, into target: Self) -> Self {
+    package static func fillingMissingMetadata(from source: Self, into target: Self) -> Self {
         switch (source, target) {
         case let (
             .leaf(sourceType, sourceName, _, sourceClassBound, sourcePredicate),
@@ -275,7 +276,7 @@ public indirect enum ConstExprStaticTypeDescriptor: Sendable {
         }
     }
 
-    func matches(type: Any.Type) -> Bool {
+    package func matches(type: Any.Type) -> Bool {
         switch self {
         case .leaf(let describedType, _, _, _, _):
             return ObjectIdentifier(describedType) == ObjectIdentifier(type)
@@ -400,7 +401,7 @@ public indirect enum ConstExprStaticTypeDescriptor: Sendable {
         source.filter { !$0.isWhitespace }
     }
 
-    var needsRuntimeExistentialWitness: Bool {
+    package var needsRuntimeExistentialWitness: Bool {
         switch self {
         case .leaf(_, _, let isExistential, _, let predicate):
             return isExistential && predicate == nil
@@ -461,3 +462,4 @@ public indirect enum ConstExprStaticTypeDescriptor: Sendable {
         }
     }
 }
+#endif

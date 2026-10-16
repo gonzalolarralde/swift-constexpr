@@ -1,15 +1,16 @@
 # Package manifest evaluation
 
-There are now two demonstrations of manifest evaluation:
+Manifest evaluation is a host-integration use case, separate from the
+[library-owned compiler macro example](../Examples/README.md). The previous
+staged PackageDescription-facade example has been replaced by PacketKit; the
+consumer no longer rewrites its manifest or generates its own registry driver.
 
-- `Examples` remains a stock two-package consumer workflow using a small,
-  side-effect-free PackageDescription-shaped facade and staged source rewriting.
-- the sibling local SwiftPM branch `codex/constexpr-manifest-loader` is the
-  alternative fast loader. It conditionally annotates the real current
-  PackageDescription implementation, resolves the global `let package` as a
-  linked value, calls a host-only canonical JSON SPI, and feeds that JSON to the
-  existing `ManifestJSONParser`. Successful evaluation does not compile,
-  sandbox, execute, or rewrite the manifest source.
+The alternative SwiftPM loader experiment conditionally annotates the real
+PackageDescription implementation, resolves the global `let package` as a
+linked value, calls a host-only canonical JSON SPI, and feeds that JSON to the
+existing `ManifestJSONParser`. Successful evaluation does not compile or run
+the manifest source as a program, but it does invoke trusted, already-compiled
+registrations in the evaluator's process. Isolation is the host's responsibility.
 
 The SwiftPM path is all-or-nothing. It configures active `#if` regions, requires
 an explicit PackageDescription import and an admissible immutable top level, and
@@ -112,24 +113,7 @@ array-backed `ConstExprRegistration.arrayLiteral(..., build:)` adapter. Missing
 context, an unknown child, multiple exact adapters, and extension-only
 conformances or witnesses all preserve the original literal for the compiler.
 
-## The bounded facade
-
-The facade under `Examples/LibraryAuthor/Sources/PackageDescriptionModel` mirrors
-only the signatures used by the consumer fixture. It intentionally does not copy
-SwiftPM implementation bodies, historical overload sets, availability rules, or
-manifest-process exit behavior. All supported factories, nested types,
-conformances, and literal initializers are in primary declarations so the macro
-can see them.
-
-This is an API-era-specific adapter, not automatic support for every manifest.
-Adding another PackageDescription operation means adding its safe facade
-implementation and registry coverage. Current examples omit build settings,
-resources, providers, registry dependencies, version ranges, plugins, language
-modes, and most trait APIs. Environment reads, mutable construction, arbitrary
-control flow, and closure-heavy manifests remain subject to the evaluator's
-ordinary conservative boundaries.
-
-## Why the consumer uses `build.sh`
+## Why manifest evaluation needs host integration
 
 A build-tool plugin cannot rewrite its own package manifest. SwiftPM must select
 and evaluate root manifests before it has a resolved module graph or a build plan;
@@ -137,35 +121,12 @@ build-tool plugins run later and receive the package directory as read-only inpu
 A plugin also cannot dynamically relink its executable with registry products
 discovered from an arbitrary dependency graph.
 
-The example therefore uses an external bootstrap step:
+A manifest loader or external host must therefore supply the trusted registry
+and control the evaluate-or-compile decision. A manifest cannot import an
+arbitrary package dependency merely because it declares that dependency;
+evaluating the manifest is what discovers the package graph.
 
-1. `LibraryAuthor` exports its normal library and separate host-side registry
-   provider products.
-2. `Consumer/build.sh` generates a small driver package linked to ConstExpr and
-   those providers.
-3. It copies the consumer into a temporary sibling directory. The sibling layout
-   preserves relative package dependencies such as `../LibraryAuthor`.
-4. The driver rewrites `Package.swift`, `Sources/**/*.swift`, and
-   `Tests/**/*.swift` into that stage.
-5. The script runs `swift package dump-package` against the rewritten stage,
-   builds it with a separate scratch path, and optionally runs its executable.
-
-The checked-in consumer remains a valid ordinary Swift package and is never
-modified. Its manifest imports only `PackageDescription`; a manifest cannot import
-an arbitrary dependency module because evaluating the manifest is what discovers
-that dependency. Provider-only manifest calls would therefore be a bootstrap-only
-mode and must be completely removed by rewriting before stock SwiftPM could load
-the result.
-
-Run the complete author/consumer demonstration with:
-
-```sh
-cd Examples/Consumer
-./build.sh --run
-```
-
-Use `./verify.sh` to additionally compare the rewritten manifest, rewritten
-consumer source, and runtime output with the checked-in golden files.
-
-Use `--keep-stage` to inspect the validated rewritten package. See
-`Examples/README.md` for the file-by-file walkthrough.
+Library-owned expression macros have a different lifecycle: their dependencies
+are already resolved when ordinary target source is compiled. PacketKit can
+ship its registry in its own compiler plugin and let consumers build normally.
+See [Examples](../Examples/README.md) for that simpler author/consumer workflow.

@@ -13,8 +13,16 @@ let package = Package(
             targets: ["ConstExpr"]
         ),
         .library(
+            name: "ConstExprEvaluation",
+            targets: ["ConstExprEvaluation"]
+        ),
+        .library(
             name: "ConstExprMacroSupport",
             targets: ["ConstExprMacroSupport"]
+        ),
+        .plugin(
+            name: "GenerateConstExprRegistry",
+            targets: ["GenerateConstExprRegistry"]
         ),
         .executable(
             name: "swift-constexpr-example",
@@ -28,8 +36,11 @@ let package = Package(
         // Targets are the basic building blocks of a package, defining a module or a test suite.
         // Targets can depend on other targets in this package and products from dependencies.
         .target(
-            name: "ConstExpr", dependencies: [
-                "ConstExprMacros",
+            name: "ConstExpr", dependencies: ["ConstExprMacros"]
+        ),
+        .target(
+            name: "ConstExprEvaluation", dependencies: [
+                "ConstExpr",
                 .product(name: "SwiftSyntax", package: "swift-syntax"),
                 .product(name: "SwiftParser", package: "swift-syntax"),
                 .product(name: "SwiftParserDiagnostics", package: "swift-syntax"),
@@ -40,18 +51,62 @@ let package = Package(
         .macro(
             name: "ConstExprMacros",
             dependencies: [
+                "ConstExprMacroImplementation",
                 .product(name: "SwiftCompilerPlugin", package: "swift-syntax"),
+                .product(name: "SwiftSyntax", package: "swift-syntax"),
+                .product(name: "SwiftSyntaxMacros", package: "swift-syntax"),
+            ],
+            path: "Sources/ConstExprMacroPlugin"
+        ),
+        // Shared by the compiler plugin and source-only registry discovery.
+        .target(
+            name: "ConstExprMacroImplementation",
+            dependencies: [
                 .product(name: "SwiftDiagnostics", package: "swift-syntax"),
                 .product(name: "SwiftSyntax", package: "swift-syntax"),
                 .product(name: "SwiftSyntaxBuilder", package: "swift-syntax"),
                 .product(name: "SwiftSyntaxMacros", package: "swift-syntax"),
+            ],
+            path: "Sources/ConstExprMacros"
+        ),
+        .target(
+            name: "ConstExprRegistryGeneration",
+            dependencies: [
+                "ConstExprMacroImplementation",
+                .product(name: "SwiftDiagnostics", package: "swift-syntax"),
+                .product(name: "SwiftParser", package: "swift-syntax"),
+                .product(name: "SwiftParserDiagnostics", package: "swift-syntax"),
+                .product(name: "SwiftSyntax", package: "swift-syntax"),
+                .product(name: "SwiftSyntaxBuilder", package: "swift-syntax"),
+                .product(name: "SwiftSyntaxMacros", package: "swift-syntax"),
+                .product(name: "SwiftSyntaxMacroExpansion", package: "swift-syntax"),
             ]
+        ),
+        .executableTarget(
+            name: "ConstExprRegistryGenerator",
+            dependencies: ["ConstExprRegistryGeneration"]
+        ),
+        .plugin(
+            name: "GenerateConstExprRegistry",
+            capability: .command(
+                intent: .custom(
+                    verb: "generate-constexpr-registry",
+                    description: "Generate a registry from a target's ConstExpr annotations"
+                ),
+                permissions: [
+                    .writeToPackageDirectory(reason: "Write the selected target's generated registry source"),
+                ]
+            ),
+            dependencies: ["ConstExprRegistryGenerator"]
         ),
         .target(
             name: "ConstExprMacroSupport",
             dependencies: [
-                "ConstExpr",
+                "ConstExprEvaluation",
+                .product(name: "SwiftDiagnostics", package: "swift-syntax"),
+                .product(name: "SwiftParser", package: "swift-syntax"),
                 .product(name: "SwiftSyntax", package: "swift-syntax"),
+                .product(name: "SwiftSyntaxBuilder", package: "swift-syntax"),
                 .product(name: "SwiftSyntaxMacros", package: "swift-syntax"),
             ]
         ),
@@ -87,22 +142,23 @@ let package = Package(
         .target(
             name: "ConstExprPackageInterfaceConsumerFixture",
             dependencies: [
-                "ConstExpr",
+                "ConstExprEvaluation",
                 "ConstExprPackageInterfaceFixture",
             ]
         ),
         .executableTarget(
             name: "ConstExprExampleCLI",
-            dependencies: ["ConstExpr", "ConstExprExampleRegistry"]
+            dependencies: ["ConstExprEvaluation", "ConstExprExampleRegistry"]
         ),
         .testTarget(
             name: "ConstExprTests",
-            dependencies: ["ConstExpr"]
+            dependencies: ["ConstExpr", "ConstExprEvaluation"]
         ),
         .testTarget(
             name: "ConstExprRuntimeTests",
             dependencies: [
                 "ConstExpr",
+                "ConstExprEvaluation",
                 .product(name: "SwiftSyntax", package: "swift-syntax"),
                 .product(name: "SwiftSyntaxBuilder", package: "swift-syntax"),
             ]
@@ -110,7 +166,7 @@ let package = Package(
         .testTarget(
             name: "ConstExprMacrosTests",
             dependencies: [
-                "ConstExprMacros",
+                "ConstExprMacroImplementation",
                 "ConstExprEvaluateExampleMacros",
                 .product(name: "SwiftParser", package: "swift-syntax"),
                 .product(name: "SwiftSyntaxMacroExpansion", package: "swift-syntax"),
@@ -119,9 +175,26 @@ let package = Package(
             ]
         ),
         .testTarget(
+            name: "ConstExprRegistryGenerationTests",
+            dependencies: ["ConstExprRegistryGeneration"]
+        ),
+        .testTarget(
+            name: "ConstExprMacroSupportTests",
+            dependencies: [
+                "ConstExpr",
+                "ConstExprEvaluation",
+                "ConstExprMacroSupport",
+                .product(name: "SwiftParser", package: "swift-syntax"),
+                .product(name: "SwiftSyntax", package: "swift-syntax"),
+                .product(name: "SwiftSyntaxMacroExpansion", package: "swift-syntax"),
+            ]
+        ),
+        .testTarget(
             name: "ConstExprIntegrationTests",
             dependencies: [
                 "ConstExpr",
+                "ConstExprEvaluation",
+                "ConstExprRegistryGeneration",
                 "ConstExprExampleDefinitions",
                 "ConstExprExampleRegistry",
                 "ConstExprEvaluateExample",

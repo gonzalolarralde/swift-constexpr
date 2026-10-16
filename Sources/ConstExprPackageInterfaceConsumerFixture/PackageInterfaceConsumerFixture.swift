@@ -1,4 +1,4 @@
-import ConstExpr
+import ConstExprEvaluation
 import ConstExprPackageInterfaceFixture
 
 private let packageInterfaceRootRegistry = #constExprRegistry(

@@ -1,29 +1,30 @@
+#if !hasFeature(Embedded)
 import Foundation
 
-struct ConstExprIndexedType: @unchecked Sendable {
-    let type: Any.Type
-    var descriptor: ConstExprStaticTypeDescriptor
+package struct ConstExprIndexedType: @unchecked Sendable {
+    package let type: Any.Type
+    package var descriptor: ConstExprStaticTypeDescriptor
 }
 
 /// Immutable indexes compiled once when a registry value is constructed.
 /// Evaluators share this storage through the value-semantic registry wrapper.
-final class ConstExprRegistryIndex: @unchecked Sendable {
-    struct NameAndKind: Hashable {
+package final class ConstExprRegistryIndex: @unchecked Sendable {
+    package struct NameAndKind: Hashable {
         let name: String
         let kind: ConstExprRegistrationKind
     }
 
-    let registrationsByName: [String: [ConstExprRegistration]]
-    let usableRegistrations: [ConstExprRegistration]
-    let usableRegistrationsByName: [String: [ConstExprRegistration]]
-    let usableRegistrationsByNameAndKind: [NameAndKind: [ConstExprRegistration]]
-    let usableRegistrationsByOwnerType: [ObjectIdentifier: [ConstExprRegistration]]
-    let usableArrayLiteralRegistrationsByOwnerType: [ObjectIdentifier: [ConstExprRegistration]]
-    let typesBySourceKey: [ConstExprSourceTypeKey: [ConstExprIndexedType]]
-    let sourceKeysByType: [ObjectIdentifier: Set<ConstExprSourceTypeKey>]
-    let validationDiagnostics: [ConstExprDiagnostic]
+    package let registrationsByName: [String: [ConstExprRegistration]]
+    package let usableRegistrations: [ConstExprRegistration]
+    package let usableRegistrationsByName: [String: [ConstExprRegistration]]
+    package let usableRegistrationsByNameAndKind: [NameAndKind: [ConstExprRegistration]]
+    package let usableRegistrationsByOwnerType: [ObjectIdentifier: [ConstExprRegistration]]
+    package let usableArrayLiteralRegistrationsByOwnerType: [ObjectIdentifier: [ConstExprRegistration]]
+    package let typesBySourceKey: [ConstExprSourceTypeKey: [ConstExprIndexedType]]
+    package let sourceKeysByType: [ObjectIdentifier: Set<ConstExprSourceTypeKey>]
+    package let validationDiagnostics: [ConstExprDiagnostic]
 
-    init(registrations: [ConstExprRegistration]) {
+    package init(registrations: [ConstExprRegistration]) {
         registrationsByName = Dictionary(grouping: registrations, by: \ConstExprRegistration.name)
         let metadataDiagnostics = registrations.flatMap(\ConstExprRegistration.validationDiagnostics)
         let collidingIDs = Set(
@@ -146,7 +147,7 @@ final class ConstExprRegistryIndex: @unchecked Sendable {
         sourceKeysByType = keysByType
     }
 
-    func candidates(
+    package func candidates(
         named name: String,
         kind: ConstExprRegistrationKind? = nil,
         ownerType: Any.Type? = nil,
@@ -172,7 +173,7 @@ final class ConstExprRegistryIndex: @unchecked Sendable {
         return candidates
     }
 
-    func usableCandidates(
+    package func usableCandidates(
         named name: String,
         kind: ConstExprRegistrationKind? = nil
     ) -> [ConstExprRegistration] {
@@ -182,19 +183,19 @@ final class ConstExprRegistryIndex: @unchecked Sendable {
         return usableRegistrationsByName[name] ?? []
     }
 
-    func usableCandidates(ownerType: Any.Type) -> [ConstExprRegistration] {
+    package func usableCandidates(ownerType: Any.Type) -> [ConstExprRegistration] {
         usableRegistrationsByOwnerType[ObjectIdentifier(ownerType)] ?? []
     }
 
-    func usableArrayLiteralCandidates(ownerType: Any.Type) -> [ConstExprRegistration] {
+    package func usableArrayLiteralCandidates(ownerType: Any.Type) -> [ConstExprRegistration] {
         usableArrayLiteralRegistrationsByOwnerType[ObjectIdentifier(ownerType)] ?? []
     }
 
-    func typeCandidates(for key: ConstExprSourceTypeKey) -> [ConstExprIndexedType] {
+    package func typeCandidates(for key: ConstExprSourceTypeKey) -> [ConstExprIndexedType] {
         typesBySourceKey[key] ?? []
     }
 
-    func sourceKeys(for type: Any.Type) -> Set<ConstExprSourceTypeKey> {
+    package func sourceKeys(for type: Any.Type) -> Set<ConstExprSourceTypeKey> {
         sourceKeysByType[ObjectIdentifier(type)] ?? []
     }
 
@@ -206,3 +207,4 @@ final class ConstExprRegistryIndex: @unchecked Sendable {
             || candidate.split(separator: ".").last.map(String.init) == requested
     }
 }
+#endif

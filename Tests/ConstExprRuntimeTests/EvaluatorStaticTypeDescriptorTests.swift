@@ -1,5 +1,6 @@
 import Testing
 @testable import ConstExpr
+@testable import ConstExprEvaluation
 
 protocol DescriptorValueProtocol {}
 protocol DescriptorClassProtocol: AnyObject {}

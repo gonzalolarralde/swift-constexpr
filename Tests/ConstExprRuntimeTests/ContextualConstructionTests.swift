@@ -1,5 +1,6 @@
 import Testing
 @testable import ConstExpr
+@testable import ConstExprEvaluation
 
 private final class ContextualConstructionCounter: @unchecked Sendable {
     var value = 0

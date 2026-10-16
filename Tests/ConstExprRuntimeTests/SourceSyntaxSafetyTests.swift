@@ -1,5 +1,6 @@
 import Testing
 @testable import ConstExpr
+@testable import ConstExprEvaluation
 
 private final class SourceSyntaxInvocationCounter: @unchecked Sendable {
     var count = 0

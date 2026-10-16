@@ -1,5 +1,6 @@
 import Testing
 @testable import ConstExpr
+@testable import ConstExprEvaluation
 
 private final class EvaluatorInvocationCounter: @unchecked Sendable {
     var value = 0

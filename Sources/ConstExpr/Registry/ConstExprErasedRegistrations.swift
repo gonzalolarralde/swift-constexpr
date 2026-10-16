@@ -1,3 +1,4 @@
+#if !hasFeature(Embedded)
 public extension _ConstExprRuntime {
     /// Normalizes generated peers into a typed registry fragment. Package-only
     /// peers erase their result to `[Any]` so a module can use `internal import
@@ -14,3 +15,4 @@ public extension _ConstExprRuntime {
         registrations.compactMap { $0 as? Registration }
     }
 }
+#endif

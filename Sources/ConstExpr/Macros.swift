@@ -10,6 +10,7 @@ public enum ConstExprRegistrationAccess: Sendable {
     case package
 }
 
+#if !hasFeature(Embedded)
 /// Generates a runtime registration peer for a declaration that is safe to
 /// evaluate while rewriting source.
 ///
@@ -76,3 +77,4 @@ public macro constExprRegistry<Root>(
     extensions: [String] = []
 ) -> ConstExprRegistry =
     #externalMacro(module: "ConstExprMacros", type: "ConstExprRegistryMacro")
+#endif

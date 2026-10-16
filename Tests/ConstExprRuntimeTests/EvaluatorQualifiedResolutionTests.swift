@@ -1,5 +1,6 @@
 import Testing
 @testable import ConstExpr
+@testable import ConstExprEvaluation
 
 @Test func evaluatorResolvesModuleQualifiedFunctionsConstantsAndInitializers() {
     let registry = ConstExprRegistry(registrations: [

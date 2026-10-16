@@ -1,6 +1,7 @@
 import Foundation
 import Testing
 @testable import ConstExpr
+@testable import ConstExprEvaluation
 
 private final class DeprecatedStoredPropertyCounter: @unchecked Sendable {
     private let lock = NSLock()

@@ -1,52 +1,50 @@
 // swift-tools-version: 6.3
 
+import CompilerPluginSupport
 import PackageDescription
 
 let package = Package(
-    name: "LibraryAuthor",
+    name: "PacketKit",
     platforms: [.macOS(.v11)],
     products: [
-        .library(
-            name: "ManifestValues",
-            targets: ["ManifestValues"]
-        ),
-        .library(
-            name: "ManifestValuesConstExprProvider",
-            targets: ["ManifestValuesConstExprProvider"]
-        ),
-        .library(
-            name: "PackageDescriptionConstExprProvider",
-            targets: ["PackageDescriptionConstExprProvider"]
-        ),
+        .library(name: "PacketKit", targets: ["PacketKit"]),
     ],
     dependencies: [
-        .package(name: "swift-constexpr", path: "../.."),
+        .package(path: "../.."),
+        .package(url: "https://github.com/swiftlang/swift-syntax.git", from: "603.0.2"),
     ],
     targets: [
         .target(
-            name: "ManifestValues",
+            name: "PacketKit",
+            dependencies: ["PacketKitModel", "PacketKitMacros"]
+        ),
+        // Shared by the public API and the host-side macro, avoiding a cycle.
+        .target(
+            name: "PacketKitModel",
             dependencies: [
                 .product(name: "ConstExpr", package: "swift-constexpr"),
             ]
         ),
-        .target(
-            name: "ManifestValuesConstExprProvider",
+        .macro(
+            name: "PacketKitMacros",
             dependencies: [
-                "ManifestValues",
+                "PacketKitModel",
                 .product(name: "ConstExpr", package: "swift-constexpr"),
+                .product(name: "ConstExprMacroSupport", package: "swift-constexpr"),
+                .product(name: "SwiftCompilerPlugin", package: "swift-syntax"),
+                .product(name: "SwiftSyntax", package: "swift-syntax"),
+                .product(name: "SwiftSyntaxMacros", package: "swift-syntax"),
             ]
         ),
-        .target(
-            name: "PackageDescriptionModel",
+        .testTarget(
+            name: "PacketKitMacrosTests",
             dependencies: [
-                .product(name: "ConstExpr", package: "swift-constexpr"),
-            ]
-        ),
-        .target(
-            name: "PackageDescriptionConstExprProvider",
-            dependencies: [
-                "PackageDescriptionModel",
-                .product(name: "ConstExpr", package: "swift-constexpr"),
+                "PacketKitMacros",
+                .product(name: "SwiftParser", package: "swift-syntax"),
+                .product(name: "SwiftSyntax", package: "swift-syntax"),
+                .product(name: "SwiftSyntaxMacroExpansion", package: "swift-syntax"),
+                .product(name: "SwiftSyntaxMacros", package: "swift-syntax"),
+                .product(name: "SwiftSyntaxMacrosTestSupport", package: "swift-syntax"),
             ]
         ),
     ]

@@ -1,11 +1,12 @@
-import SwiftSyntax
+#if !hasFeature(Embedded)
+
 
 /// A type-erased value produced while evaluating source.
 ///
 /// Custom registered values may remain opaque and still flow through registered
 /// methods and properties. Only a terminal value needs to be representable.
 public struct ConstExprValue {
-    indirect enum Payload {
+    package indirect enum Payload {
         case opaque(Any)
         case optional(ConstExprValue?)
         case array([ConstExprValue])
@@ -13,19 +14,19 @@ public struct ConstExprValue {
         case tuple([(label: String?, value: ConstExprValue)])
     }
 
-    let payload: Payload
+    package let payload: Payload
     public let staticType: Any.Type
     public let staticTypeDescriptor: ConstExprStaticTypeDescriptor
-    let explicitTypeName: String?
+    package let explicitTypeName: String?
     public let literalKind: ConstExprLiteralKind?
     public let isStaticallyAnyObject: Bool
-    let hasAuthoritativeStaticTypeDescriptor: Bool
+    package let hasAuthoritativeStaticTypeDescriptor: Bool
 
     // Structural values constructed by the parser do not necessarily have a
     // corresponding runtime Swift container. Values boxed from linked Swift
     // code retain one so exact casts, including labeled tuples, remain cheap.
-    let rawValue: Any?
-    let hasRawValue: Bool
+    package let rawValue: Any?
+    package let hasRawValue: Bool
 
     /// Wraps a computed value. This initializer deliberately does not mark the
     /// value as a source literal.
@@ -180,26 +181,26 @@ public struct ConstExprValue {
         return metadata.constExprNilValue()
     }
 
-    static func wrappedType(ofOptionalType optionalType: Any.Type) -> Any.Type? {
+    package static func wrappedType(ofOptionalType optionalType: Any.Type) -> Any.Type? {
         (optionalType as? any ConstExprOptionalTypeMetadata.Type)?.constExprWrappedType
     }
 
-    static func elementType(ofArrayType arrayType: Any.Type) -> Any.Type? {
+    package static func elementType(ofArrayType arrayType: Any.Type) -> Any.Type? {
         (arrayType as? any ConstExprArrayTypeMetadata.Type)?.constExprElementType
     }
 
-    static func elementType(ofSetType setType: Any.Type) -> Any.Type? {
+    package static func elementType(ofSetType setType: Any.Type) -> Any.Type? {
         (setType as? any ConstExprSetTypeMetadata.Type)?.constExprElementType
     }
 
-    static func standardArrayLiteralElementType(
+    package static func standardArrayLiteralElementType(
         of resultType: Any.Type
     ) -> Any.Type? {
         (resultType as? any ConstExprStandardArrayLiteralTypeMetadata.Type)?
             .constExprArrayLiteralElementType
     }
 
-    static func standardArrayLiteralValue(
+    package static func standardArrayLiteralValue(
         from elements: [ConstExprValue],
         as resultType: Any.Type,
         sourceTypeName: String
@@ -215,7 +216,7 @@ public struct ConstExprValue {
         )
     }
 
-    static func keyAndValueTypes(
+    package static func keyAndValueTypes(
         ofDictionaryType dictionaryType: Any.Type
     ) -> (key: Any.Type, value: Any.Type)? {
         guard let metadata = dictionaryType as? any ConstExprDictionaryTypeMetadata.Type else {
@@ -353,7 +354,7 @@ public struct ConstExprValue {
         )
     }
 
-    init(
+    package init(
         payload: Payload,
         staticType: Any.Type,
         explicitTypeName: String?,
@@ -380,3 +381,4 @@ public struct ConstExprValue {
             hasAuthoritativeStaticTypeDescriptor ?? hasRawValue
     }
 }
+#endif
